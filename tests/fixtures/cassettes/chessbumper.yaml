@@ -1,0 +1,247 @@
+interactions:
+- request:
+    body: ''
+    headers:
+      accept:
+      - application/json
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      host:
+      - api.chess.com
+      user-agent:
+      - chessleak/1.0 (opening-phase mistake analyzer for a chess.com player; reads
+        the chess.com Published Data API; chess.com is the data source)
+    method: GET
+    uri: https://api.chess.com/pub/player/chessbumper/games/archives
+  response:
+    body:
+      string: '{"archives":["https://api.chess.com/pub/player/chessbumper/games/2014/08"]}'
+    headers:
+      access-control-allow-origin:
+      - '*'
+      alt-svc:
+      - h3=":443"; ma=86400
+      cache-control:
+      - public, max-age=5
+      cf-cache-status:
+      - REVALIDATED
+      cf-ray:
+      - a43e7585edca398a-YYZ
+      connection:
+      - keep-alive
+      content-length:
+      - '75'
+      content-type:
+      - application/json; charset=utf-8
+      date:
+      - Thu, 01 Oct 2026 21:11:18 GMT
+      etag:
+      - W/"8af23c9f68df390861fa4343c0c52b3f"
+      expires:
+      - Thu, 01 Oct 2026 21:11:23
+      last-modified:
+      - Thursday, 01-Oct-2026 20:42:16 GMT+0000
+      link:
+      - <https://api.chess.com/context/GameArchives.jsonld>; rel="http://www.w3.org/ns/json-ld#context";
+        type="application/ld+json"
+      nel:
+      - '{"report_to":"cf-nel","success_fraction":1.0,"max_age":604800}'
+      report-to:
+      - '{"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=r7WaRUCJcPdag4OVXhJXheikWWGDD2rCyNv7Wfx0Um6bOyPKLExxWKbNfDJZyi045OSIjABnvKNlL%2Bk5aUBURlLFq1w3uVbe0KXGy5lSqvxoLaTjb%2B1mM63sUxfCgxJRHPicm%2FiwbDoPkhXhJVDaBxiMOyEVJdx0HQEWGBFzDwcSv20n0Bya%2F7UW9jAMWaL8Ag%3D%3D"}]}'
+      server:
+      - cloudflare
+      strict-transport-security:
+      - max-age=31536000; includeSubDomains
+      transfer-encoding:
+      - chunked
+      vary:
+      - accept-encoding
+      x-chesscom-ingress-pool:
+      - k8s-prod-fpm-catch-all
+      x-chesscom-matched:
+      - pubapi_player_games_archives
+      x-chesscom-meta:
+      - lean=published
+      x-chesscom-request-id-cdn:
+      - a43e4af9a8126d93-IAD
+      x-chesscom-request-id-lb:
+      - 202b9e0cd74a55a76c637550a4379f4b
+    status:
+      code: 200
+      message: OK
+- request:
+    body: ''
+    headers:
+      accept:
+      - application/json
+      accept-encoding:
+      - gzip, deflate
+      connection:
+      - keep-alive
+      host:
+      - api.chess.com
+      user-agent:
+      - chessleak/1.0 (opening-phase mistake analyzer for a chess.com player; reads
+        the chess.com Published Data API; chess.com is the data source)
+    method: GET
+    uri: https://api.chess.com/pub/player/chessbumper/games/2014/08
+  response:
+    body:
+      string: '{"games":[{"url":"https://www.chess.com/game/live/881215753","pgn":"[Event
+        \"Live Chess\"]\n[Site \"Chess.com\"]\n[Date \"2014.08.07\"]\n[Round \"-\"]\n[White
+        \"chessbumper\"]\n[Black \"kyivpilotvlad\"]\n[Result \"0-1\"]\n[CurrentPosition
+        \"rnb1k1nr/pppp1ppp/8/2b5/2P2PP1/3P4/PP1BBq1P/RN1QK1NR w KQkq -\"]\n[Timezone
+        \"UTC\"]\n[ECO \"A20\"]\n[ECOUrl \"https://www.chess.com/openings/English-Opening-Kings-English-Variation-2.d3\"]\n[UTCDate
+        \"2014.08.07\"]\n[UTCTime \"21:39:49\"]\n[WhiteElo \"1057\"]\n[BlackElo \"1272\"]\n[TimeControl
+        \"600\"]\n[Termination \"kyivpilotvlad won by checkmate\"]\n[StartTime \"21:39:49\"]\n[EndDate
+        \"2014.08.07\"]\n[EndTime \"21:45:17\"]\n[Link \"https://www.chess.com/game/live/881215753\"]\n\n1.
+        d3 {[%clk 0:10:00]} 1... e5 {[%clk 0:10:00]} 2. c4 {[%clk 0:09:57]} 2... Bc5
+        {[%clk 0:09:47.6]} 3. f3 {[%clk 0:09:49.6]} 3... Qh4+ {[%clk 0:09:41.5]} 4.
+        g3 {[%clk 0:07:20.9]} 4... Qd4 {[%clk 0:09:08.7]} 5. e3 {[%clk 0:07:12.5]}
+        5... Qd6 {[%clk 0:08:54.5]} 6. Bd2 {[%clk 0:07:07.9]} 6... Bb4 {[%clk 0:08:45.2]}
+        7. f4 {[%clk 0:06:59]} 7... exf4 {[%clk 0:08:40.1]} 8. exf4 {[%clk 0:06:55.6]}
+        8... Bc5 {[%clk 0:08:20.7]} 9. Be2 {[%clk 0:06:48.5]} 9... Qd4 {[%clk 0:08:17.1]}
+        10. g4 {[%clk 0:06:29]} 10... Qf2# {[%clk 0:08:08.2]} 0-1\n","time_control":"600","end_time":1407447917,"rated":true,"tcn":"lt0KkA9Inv7FowFBmuBRclIzvDKDuDzIfmRBwEBn","uuid":"d81fe85a-fd0f-11de-8000-000000010001","initial_setup":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
+        w KQkq - 0 1","fen":"rnb1k1nr/pppp1ppp/8/2b5/2P2PP1/3P4/PP1BBq1P/RN1QK1NR
+        w KQkq -","time_class":"blitz","rules":"chess","white":{"rating":1057,"result":"checkmated","@id":"https://api.chess.com/pub/player/chessbumper","username":"chessbumper","uuid":"3a0f26fc-1e7b-11e4-800e-000000000000"},"black":{"rating":1272,"result":"win","@id":"https://api.chess.com/pub/player/kyivpilotvlad","username":"kyivpilotvlad","uuid":"080408f4-188f-11e4-8058-000000000000"},"eco":"https://www.chess.com/openings/English-Opening-Kings-English-Variation-2.d3"},{"url":"https://www.chess.com/game/live/881220211","pgn":"[Event
+        \"Live Chess\"]\n[Site \"Chess.com\"]\n[Date \"2014.08.07\"]\n[Round \"-\"]\n[White
+        \"El_Vago\"]\n[Black \"chessbumper\"]\n[Result \"1-0\"]\n[CurrentPosition
+        \"rnbqkbnr/pppp1ppp/4p3/8/3PP3/8/PPP2PPP/RNBQKBNR b KQkq d3\"]\n[Timezone
+        \"UTC\"]\n[ECO \"C00\"]\n[ECOUrl \"https://www.chess.com/openings/French-Defense-Normal-Variation\"]\n[UTCDate
+        \"2014.08.07\"]\n[UTCTime \"21:45:50\"]\n[WhiteElo \"1110\"]\n[BlackElo \"939\"]\n[TimeControl
+        \"600\"]\n[Termination \"El_Vago won - game abandoned\"]\n[StartTime \"21:45:50\"]\n[EndDate
+        \"2014.08.07\"]\n[EndTime \"21:48:39\"]\n[Link \"https://www.chess.com/game/live/881220211\"]\n\n1.
+        e4 {[%clk 0:10:00]} 1... e6 {[%clk 0:10:00]} 2. d4 {[%clk 0:09:53.2]} 1-0\n","time_control":"600","end_time":1407448119,"rated":true,"tcn":"mC0SlB","uuid":"7e6bed9e-fd10-11de-8000-000000010001","initial_setup":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
+        w KQkq - 0 1","fen":"rnbqkbnr/pppp1ppp/4p3/8/3PP3/8/PPP2PPP/RNBQKBNR b KQkq
+        d3","time_class":"blitz","rules":"chess","white":{"rating":1110,"result":"win","@id":"https://api.chess.com/pub/player/el_vago","username":"El_Vago","uuid":"3f2f71b4-e2e4-11e3-8008-000000000000"},"black":{"rating":939,"result":"abandoned","@id":"https://api.chess.com/pub/player/chessbumper","username":"chessbumper","uuid":"3a0f26fc-1e7b-11e4-800e-000000000000"},"eco":"https://www.chess.com/openings/French-Defense-Normal-Variation"},{"url":"https://www.chess.com/game/live/881312550","pgn":"[Event
+        \"Live Chess\"]\n[Site \"Chess.com\"]\n[Date \"2014.08.08\"]\n[Round \"-\"]\n[White
+        \"GaurdianAngle\"]\n[Black \"chessbumper\"]\n[Result \"1-0\"]\n[CurrentPosition
+        \"rnbqkbnr/pp1p3p/8/2pP1pp1/2B5/5Q2/PPP2PPP/RNB1K1NR b KQkq -\"]\n[Timezone
+        \"UTC\"]\n[ECO \"A43\"]\n[ECOUrl \"https://www.chess.com/openings/Old-Benoni-Defense-Franco-Benoni-Defense-3...exd5-4.exd5\"]\n[UTCDate
+        \"2014.08.08\"]\n[UTCTime \"00:15:12\"]\n[WhiteElo \"1022\"]\n[BlackElo \"848\"]\n[TimeControl
+        \"300\"]\n[Termination \"GaurdianAngle won - game abandoned\"]\n[StartTime
+        \"00:15:12\"]\n[EndDate \"2014.08.08\"]\n[EndTime \"00:18:49\"]\n[Link \"https://www.chess.com/game/live/881312550\"]\n\n1.
+        e4 {[%clk 0:05:00]} 1... e6 {[%clk 0:05:00]} 2. d4 {[%clk 0:04:55.9]} 2...
+        c5 {[%clk 0:04:54.8]} 3. d5 {[%clk 0:04:50.8]} 3... exd5 {[%clk 0:04:49.7]}
+        4. exd5 {[%clk 0:04:48.1]} 4... f5 {[%clk 0:04:44.6]} 5. Qf3 {[%clk 0:04:44.6]}
+        5... g5 {[%clk 0:04:41.1]} 6. Bc4 {[%clk 0:04:38.3]} 1-0\n","time_control":"300","end_time":1407457129,"rated":true,"tcn":"mC0SlBYIBJSJCJ1Ldv2MfA","uuid":"ee34a53c-fd1d-11de-8000-000000010001","initial_setup":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
+        w KQkq - 0 1","fen":"rnbqkbnr/pp1p3p/8/2pP1pp1/2B5/5Q2/PPP2PPP/RNB1K1NR b
+        KQkq -","time_class":"blitz","rules":"chess","white":{"rating":1022,"result":"win","@id":"https://api.chess.com/pub/player/gaurdianangle","username":"GaurdianAngle","uuid":"32734d46-1d91-11e4-8002-000000000000"},"black":{"rating":848,"result":"abandoned","@id":"https://api.chess.com/pub/player/chessbumper","username":"chessbumper","uuid":"3a0f26fc-1e7b-11e4-800e-000000000000"},"eco":"https://www.chess.com/openings/Old-Benoni-Defense-Franco-Benoni-Defense-3...exd5-4.exd5"},{"url":"https://www.chess.com/game/live/881756839","pgn":"[Event
+        \"Live Chess\"]\n[Site \"Chess.com\"]\n[Date \"2014.08.08\"]\n[Round \"-\"]\n[White
+        \"laineui7\"]\n[Black \"chessbumper\"]\n[Result \"1-0\"]\n[CurrentPosition
+        \"r1b1kb2/3p4/1pn1pB2/p1p4p/8/3P1NP1/PPP1PPBP/RN1Q1RK1 b kq -\"]\n[Timezone
+        \"UTC\"]\n[ECO \"A00\"]\n[ECOUrl \"https://www.chess.com/openings/Mieses-Opening\"]\n[UTCDate
+        \"2014.08.08\"]\n[UTCTime \"14:18:20\"]\n[WhiteElo \"1362\"]\n[BlackElo \"1038\"]\n[TimeControl
+        \"60\"]\n[Termination \"laineui7 won on time\"]\n[StartTime \"14:18:20\"]\n[EndDate
+        \"2014.08.08\"]\n[EndTime \"14:19:34\"]\n[Link \"https://www.chess.com/game/live/881756839\"]\n\n1.
+        d3 {[%clk 0:01:00]} 1... e6 {[%clk 0:01:00]} 2. g3 {[%clk 0:00:59.5]} 2...
+        c5 {[%clk 0:00:56.3]} 3. Bg2 {[%clk 0:00:59.2]} 3... g5 {[%clk 0:00:53.4]}
+        4. Nf3 {[%clk 0:00:58.8]} 4... Nc6 {[%clk 0:00:45.3]} 5. Bxg5 {[%clk 0:00:57.6]}
+        5... h5 {[%clk 0:00:37.7]} 6. Bxd8 {[%clk 0:00:55.9]} 6... Nf6 {[%clk 0:00:33.7]}
+        7. O-O {[%clk 0:00:55.4]} 7... a5 {[%clk 0:00:21.6]} 8. Bxf6 {[%clk 0:00:54.2]}
+        8... b6 {[%clk 0:00:09]} 9. Bxh8 {[%clk 0:00:53.2]} 9... f6 {[%clk 0:00:00.8]}
+        10. Bxf6 {[%clk 0:00:51.5]} 1-0\n","time_control":"60","end_time":1407507574,"rated":true,"tcn":"lt0SowYIfo2Mgv5QcM3NM7!TegWG7TXPT?1T?T","uuid":"95393146-fd5e-11de-8000-000000010001","initial_setup":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
+        w KQkq - 0 1","fen":"r1b1kb2/3p4/1pn1pB2/p1p4p/8/3P1NP1/PPP1PPBP/RN1Q1RK1
+        b kq -","time_class":"bullet","rules":"chess","white":{"rating":1362,"result":"win","@id":"https://api.chess.com/pub/player/laineui7","username":"laineui7","uuid":"c450a03a-1f06-11e4-8022-000000000000"},"black":{"rating":1038,"result":"timeout","@id":"https://api.chess.com/pub/player/chessbumper","username":"chessbumper","uuid":"3a0f26fc-1e7b-11e4-800e-000000000000"},"eco":"https://www.chess.com/openings/Mieses-Opening"},{"url":"https://www.chess.com/game/live/881758028","pgn":"[Event
+        \"Live Chess\"]\n[Site \"Chess.com\"]\n[Date \"2014.08.08\"]\n[Round \"-\"]\n[White
+        \"chessbumper\"]\n[Black \"laineui7\"]\n[Result \"0-1\"]\n[CurrentPosition
+        \"rn1qr1k1/1pp2pbp/p2pbnp1/4p3/PP2P3/2NP1N1P/2PQ1PPR/R1B1KB2 w Q -\"]\n[Timezone
+        \"UTC\"]\n[ECO \"B07\"]\n[ECOUrl \"https://www.chess.com/openings/Pirc-Defense-Modern-Defense-Geller-System-2...g6\"]\n[UTCDate
+        \"2014.08.08\"]\n[UTCTime \"14:19:55\"]\n[WhiteElo \"980\"]\n[BlackElo \"1420\"]\n[TimeControl
+        \"60\"]\n[Termination \"laineui7 won on time\"]\n[StartTime \"14:19:55\"]\n[EndDate
+        \"2014.08.08\"]\n[EndTime \"14:21:05\"]\n[Link \"https://www.chess.com/game/live/881758028\"]\n\n1.
+        e4 {[%clk 0:01:00]} 1... d6 {[%clk 0:01:00]} 2. Nf3 {[%clk 0:00:49]} 2...
+        g6 {[%clk 0:00:59.5]} 3. d3 {[%clk 0:00:44.4]} 3... Bg7 {[%clk 0:00:59.1]}
+        4. Nc3 {[%clk 0:00:39.7]} 4... Nf6 {[%clk 0:00:58.6]} 5. Qd2 {[%clk 0:00:27.4]}
+        5... e5 {[%clk 0:00:57.7]} 6. b4 {[%clk 0:00:21.2]} 6... O-O {[%clk 0:00:57.3]}
+        7. h3 {[%clk 0:00:15.1]} 7... Re8 {[%clk 0:00:56.5]} 8. Rh2 {[%clk 0:00:11.5]}
+        8... a6 {[%clk 0:00:56.1]} 9. a4 {[%clk 0:00:08]} 9... Be6 {[%clk 0:00:55.1]}
+        0-1\n","time_control":"60","end_time":1407507665,"rated":true,"tcn":"mCZRgv2Ult92bs!Tdl0Kjz8!px98hpWOiy6S","uuid":"c154b278-fd5e-11de-8000-000000010001","initial_setup":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
+        w KQkq - 0 1","fen":"rn1qr1k1/1pp2pbp/p2pbnp1/4p3/PP2P3/2NP1N1P/2PQ1PPR/R1B1KB2
+        w Q -","time_class":"bullet","rules":"chess","white":{"rating":980,"result":"timeout","@id":"https://api.chess.com/pub/player/chessbumper","username":"chessbumper","uuid":"3a0f26fc-1e7b-11e4-800e-000000000000"},"black":{"rating":1420,"result":"win","@id":"https://api.chess.com/pub/player/laineui7","username":"laineui7","uuid":"c450a03a-1f06-11e4-8022-000000000000"},"eco":"https://www.chess.com/openings/Pirc-Defense-Modern-Defense-Geller-System-2...g6"},{"url":"https://www.chess.com/game/live/881791499","pgn":"[Event
+        \"Live Chess\"]\n[Site \"Chess.com\"]\n[Date \"2014.08.08\"]\n[Round \"-\"]\n[White
+        \"chessbumper\"]\n[Black \"renujoshi\"]\n[Result \"1-0\"]\n[CurrentPosition
+        \"rnbqkbnr/1ppppppp/8/p7/5P2/2P5/PP1PP1PP/RNBQKBNR b KQkq -\"]\n[Timezone
+        \"UTC\"]\n[ECO \"A02\"]\n[ECOUrl \"https://www.chess.com/openings/Birds-Opening\"]\n[UTCDate
+        \"2014.08.08\"]\n[UTCTime \"15:06:49\"]\n[WhiteElo \"1077\"]\n[BlackElo \"824\"]\n[TimeControl
+        \"60\"]\n[Termination \"chessbumper won - game abandoned\"]\n[StartTime \"15:06:49\"]\n[EndDate
+        \"2014.08.08\"]\n[EndTime \"15:07:34\"]\n[Link \"https://www.chess.com/game/live/881791499\"]\n\n1.
+        f4 {[%clk 0:01:00]} 1... a5 {[%clk 0:01:00]} 2. c3 {[%clk 0:00:52.8]} 1-0\n","time_control":"60","end_time":1407510454,"rated":true,"tcn":"nDWGks","uuid":"a042906e-fd63-11de-8000-000000010001","initial_setup":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
+        w KQkq - 0 1","fen":"rnbqkbnr/1ppppppp/8/p7/5P2/2P5/PP1PP1PP/RNBQKBNR b KQkq
+        -","time_class":"bullet","rules":"chess","white":{"rating":1077,"result":"win","@id":"https://api.chess.com/pub/player/chessbumper","username":"chessbumper","uuid":"3a0f26fc-1e7b-11e4-800e-000000000000"},"black":{"rating":824,"result":"abandoned","@id":"https://api.chess.com/pub/player/renujoshi","username":"renujoshi","uuid":"31b2ffe2-1f0c-11e4-803e-000000000000"},"eco":"https://www.chess.com/openings/Birds-Opening"},{"url":"https://www.chess.com/game/live/882248828","pgn":"[Event
+        \"Live Chess\"]\n[Site \"Chess.com\"]\n[Date \"2014.08.09\"]\n[Round \"-\"]\n[White
+        \"chessbumper\"]\n[Black \"garnetandgold\"]\n[Result \"0-1\"]\n[CurrentPosition
+        \"3rk2r/pp2bppp/2p2n2/4q3/1PP3bP/P4NP1/3QKP2/RN3B1R w k -\"]\n[Timezone \"UTC\"]\n[ECO
+        \"B01\"]\n[ECOUrl \"https://www.chess.com/openings/Scandinavian-Defense-Mieses-Kotrc-Variation-3.Nf3\"]\n[UTCDate
+        \"2014.08.09\"]\n[UTCTime \"02:37:03\"]\n[WhiteElo \"758\"]\n[BlackElo \"847\"]\n[TimeControl
+        \"300\"]\n[Termination \"garnetandgold won on time\"]\n[StartTime \"02:37:03\"]\n[EndDate
+        \"2014.08.09\"]\n[EndTime \"02:44:07\"]\n[Link \"https://www.chess.com/game/live/882248828\"]\n\n1.
+        e4 {[%clk 0:05:00]} 1... d5 {[%clk 0:05:00]} 2. exd5 {[%clk 0:04:56.3]} 2...
+        Qxd5 {[%clk 0:04:57.6]} 3. Nf3 {[%clk 0:04:50.7]} 3... Qa5 {[%clk 0:04:55.2]}
+        4. a3 {[%clk 0:04:38.1]} 4... Bf5 {[%clk 0:04:51]} 5. h4 {[%clk 0:04:31.4]}
+        5... Nf6 {[%clk 0:04:46.2]} 6. c4 {[%clk 0:04:20.7]} 6... e6 {[%clk 0:04:43]}
+        7. b3 {[%clk 0:03:43]} 7... c6 {[%clk 0:04:37.3]} 8. Bb2 {[%clk 0:03:38.9]}
+        8... Nbd7 {[%clk 0:04:33.1]} 9. Ke2 {[%clk 0:03:30.1]} 9... Be7 {[%clk 0:04:16.4]}
+        10. d4 {[%clk 0:03:13.8]} 10... Bg4 {[%clk 0:04:05.8]} 11. g3 {[%clk 0:02:56.1]}
+        11... Rd8 {[%clk 0:03:49.5]} 12. Qd2 {[%clk 0:02:44.9]} 12... Qc7 {[%clk 0:03:42.1]}
+        13. b4 {[%clk 0:02:30.1]} 13... e5 {[%clk 0:03:40]} 14. dxe5 {[%clk 0:02:23.9]}
+        14... Nxe5 {[%clk 0:03:12.5]} 15. Bxe5 {[%clk 0:01:44.1]} 15... Qxe5+ {[%clk
+        0:03:03.6]} 0-1\n","time_control":"300","end_time":1407552247,"rated":true,"tcn":"mCZJCJ7JgvJGiq6LpF!TkA0SjrYQcj5Zem90lBLEow47dlGYrzSKBKZKjKYK","uuid":"2d0e3df8-fda6-11de-8000-000000010001","initial_setup":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR
+        w KQkq - 0 1","fen":"3rk2r/pp2bppp/2p2n2/4q3/1PP3bP/P4NP1/3QKP2/RN3B1R w k
+        -","time_class":"blitz","rules":"chess","white":{"rating":758,"result":"timeout","@id":"https://api.chess.com/pub/player/chessbumper","username":"chessbumper","uuid":"3a0f26fc-1e7b-11e4-800e-000000000000"},"black":{"rating":847,"result":"win","@id":"https://api.chess.com/pub/player/garnetandgold","username":"garnetandgold","uuid":"0348e1c0-150d-11e4-8042-000000000000"},"eco":"https://www.chess.com/openings/Scandinavian-Defense-Mieses-Kotrc-Variation-3.Nf3"}]}'
+    headers:
+      access-control-allow-origin:
+      - '*'
+      alt-svc:
+      - h3=":443"; ma=86400
+      cache-control:
+      - public, max-age=5
+      cf-cache-status:
+      - REVALIDATED
+      cf-ray:
+      - a43e75871b82ebb4-YYZ
+      connection:
+      - keep-alive
+      content-length:
+      - '12801'
+      content-type:
+      - application/json; charset=utf-8
+      date:
+      - Thu, 01 Oct 2026 21:11:18 GMT
+      etag:
+      - W/"8be3bb22745e8b564767783c971361d8"
+      expires:
+      - Thu, 01 Oct 2026 21:11:23
+      last-modified:
+      - Thursday, 01-Oct-2026 20:42:19 GMT+0000
+      link:
+      - <https://api.chess.com/context/Games.jsonld>; rel="http://www.w3.org/ns/json-ld#context";
+        type="application/ld+json"
+      nel:
+      - '{"report_to":"cf-nel","success_fraction":1.0,"max_age":604800}'
+      report-to:
+      - '{"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=c6QRl1znsUnep10HFKspOYzWPZkzEwZzRqtx1He6hbct%2B5gmjtV%2FrVB%2Fm6t9a4UgFQIQGpGH7ocBD0eajVq4sas3nQ72GwRbaozi733QQrnepfTn4X1z%2FZmVd8kBUu4CfhhLDYRMHxEzR1BRZKprkIrLJumbo4Bbs4fjq3yPDmmv0KGZmlimyFz4iZIaop4A8w%3D%3D"}]}'
+      server:
+      - cloudflare
+      strict-transport-security:
+      - max-age=31536000; includeSubDomains
+      transfer-encoding:
+      - chunked
+      vary:
+      - accept-encoding
+      x-chesscom-ingress-pool:
+      - k8s-prod-fpm-catch-all
+      x-chesscom-matched:
+      - pubapi_player_games_archive
+      x-chesscom-meta:
+      - lean=published
+      x-chesscom-request-id-cdn:
+      - a43e4b0b8ebbac7c-IAD
+      x-chesscom-request-id-lb:
+      - 3c397a3a2a2a85cd18de674e82ff99a3
+    status:
+      code: 200
+      message: OK
+version: 1
