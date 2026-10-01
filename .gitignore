@@ -17,3 +17,9 @@ report.md
 __pycache__/
 *.pyc
 .beads/issues.jsonl
+
+# Per-worktree caches and Python build artifacts
+.cache/
+build/
+dist/
+*.egg-info/
