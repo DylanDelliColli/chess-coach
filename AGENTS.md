@@ -45,9 +45,12 @@ cp -rf source dest          # NOT: cp -r source dest
 - `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
 - `br init` - pass `--force`; never let it overwrite a populated store
 
-This repository has **no Git remote** (operator-approved 2026-10-01): work is
-integrated by local merges, and `git push` has no target. Keep the local history
-clean and branch-scoped instead, and say so in any handoff that mentions pushing.
+This repository has a Git remote, `origin`
+(`git@github.com:DylanDelliColli/chess-coach.git`, established by the operator on
+2026-10-01 after the first four units had merged locally). The release integrates by
+**local merge into `release/v1-mvp`**, and the chief pushes that branch after each
+merge; the operator merges the accepted release into `master` and tags it. Worker
+branches are not pushed before their unit merges.
 
 
 <!-- br-agent-instructions-v1 -->

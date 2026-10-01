@@ -134,10 +134,15 @@ asked whether that blocker may be dropped, which would shorten the release by on
   polite.
 - Nothing authenticates to chess.com, and no account credential is ever needed or
   stored.
-- **No Git remote exists** (operator, 2026-10-01). Workers commit and merge
-  nothing: they commit on their own branch in their own worktree and report the
-  head commit. The chief reviews and merges locally into `release/v1-mvp`. The
-  beads' "open a pull request" wording is superseded by this clause.
+- **Workers commit and merge nothing**: they commit on their own branch in their own
+  worktree and report the head commit. The chief reviews and merges into
+  `release/v1-mvp`, then pushes that branch. The beads' "open a pull request" wording
+  stays superseded for this release.
+  *Amended 2026-10-01:* the operator established `origin`
+  (`git@github.com:DylanDelliColli/chess-coach.git`) after the first four units merged
+  locally. The integration practice does not change — the first four merges stay local
+  and are pushed as history, not as pull requests — and the operator still merges the
+  accepted release into `master` and tags it alone.
 
 ## Real inputs and journeys
 
