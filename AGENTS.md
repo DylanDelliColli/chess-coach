@@ -1,15 +1,23 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+This project uses **br** (Beads Rust) for issue tracking: a SQLite + JSONL store in
+`.beads/`, shared by every worktree of this repository. Run `br prime` to get
+started, `br robot-docs guide` for the agent-facing reference.
+
+**Never run `bd` (Beads Go/Dolt) against this repository.** It was migrated to `br`
+on 2026-10-01; `bd` would create a second, divergent store. The archived bd store and
+its verified restore instructions are at
+`~/dev-env/beads-archives/chess/README.md`. Precedent: bead `alley-ot7` in the
+Alleyoop tracker (costing-comparison bd -> br).
 
 ## Quick Reference
 
 ```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work atomically
-bd close <id>         # Complete work
-bd dolt push          # Push beads data to remote
+br ready              # Find available work
+br show <id>          # View issue details
+br update <id> --claim  # Claim work atomically
+br close <id>         # Complete work
+br ready --json       # Machine-readable work view for agents
 ```
 
 ## Non-Interactive Shell Commands
@@ -35,50 +43,76 @@ cp -rf source dest          # NOT: cp -r source dest
 - `ssh` - use `-o BatchMode=yes` to fail instead of prompting
 - `apt-get` - use `-y` flag
 - `brew` - use `HOMEBREW_NO_AUTO_UPDATE=1` env var
+- `br init` - pass `--force`; never let it overwrite a populated store
 
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
-## Beads Issue Tracker
+This repository has **no Git remote** (operator-approved 2026-10-01): work is
+integrated by local merges, and `git push` has no target. Keep the local history
+clean and branch-scoped instead, and say so in any handoff that mentions pushing.
 
-This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
 
-### Quick Reference
+<!-- br-agent-instructions-v1 -->
+
+---
+
+## Beads Workflow Integration
+
+This project uses [beads_rust](https://github.com/Dicklesworthstone/beads_rust) (`br`/`bd`) for issue tracking. Issues are stored in `.beads/` and tracked in git.
+
+### Essential Commands
 
 ```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --claim  # Claim work
-bd close <id>         # Complete work
+# View ready issues (open, unblocked, not deferred)
+br ready              # or: bd ready
+
+# List and search
+br list --status=open # All open issues
+br show <id>          # Full issue details with dependencies
+br search "keyword"   # Full-text search
+
+# Create and update
+br create --title="..." --description="..." --type=task --priority=2
+br update <id> --status=in_progress
+br close <id> --reason="Completed"
+br close <id1> <id2>  # Close multiple issues at once
+
+# Sync with git
+br sync --flush-only  # Export DB to JSONL
+br sync --status      # Check sync status
 ```
 
-### Rules
+### Workflow Pattern
 
-- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
-- Run `bd prime` for detailed command reference and session close protocol
-- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
+1. **Start**: Run `br ready` to find actionable work
+2. **Claim**: Use `br update <id> --status=in_progress`
+3. **Work**: Implement the task
+4. **Complete**: Use `br close <id>`
+5. **Sync**: Always run `br sync --flush-only` at session end
 
-## Session Completion
+### Key Concepts
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+- **Dependencies**: Issues can block other issues. `br ready` shows only open, unblocked work.
+- **Priority**: P0=critical, P1=high, P2=medium, P3=low, P4=backlog (use numbers 0-4, not words)
+- **Types**: task, bug, feature, epic, chore, docs, question
+- **Blocking**: `br dep add <issue> <depends-on>` to add dependencies
 
-**MANDATORY WORKFLOW:**
+### Session Protocol
 
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
-   ```bash
-   git pull --rebase
-   bd dolt push
-   git push
-   git status  # MUST show "up to date with origin"
-   ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
+**Before ending any session, run this checklist:**
 
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
-<!-- END BEADS INTEGRATION -->
+```bash
+git status              # Check what changed
+git add <files>         # Stage code changes
+br sync --flush-only    # Export beads changes to JSONL
+git commit -m "..."     # Commit everything
+git push                # Push to remote
+```
+
+### Best Practices
+
+- Check `br ready` at session start to find available work
+- Update status as you work (in_progress → closed)
+- Create new issues with `br create` when you discover tasks
+- Use descriptive titles and set appropriate priority/type
+- Always sync before ending session
+
+<!-- end-br-agent-instructions -->

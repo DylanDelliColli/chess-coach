@@ -1,5 +1,19 @@
 
-# Beads / Dolt files (added by bd init)
-.dolt/
+# Beads (br) manages .beads runtime state through .beads/.gitignore.
 *.db
-.beads-credential-key
+*.db-wal*
+*.db-fsqlite-*
+.write.lock
+*.lock
+last-touched
+.br_history/
+.br_recovery/
+.sync.lock
+sync_base.jsonl
+
+# Local run artifacts
+report.md
+.venv/
+__pycache__/
+*.pyc
+.beads/issues.jsonl
