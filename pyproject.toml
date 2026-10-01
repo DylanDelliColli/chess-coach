@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chessleak"
+version = "1.0.0"
+description = "Opening-phase recurring-mistake analyzer for a chess.com player's own games"
+requires-python = ">=3.11"
+dependencies = [
+    "chess>=1.11",
+    "httpx>=0.27",
+    "vcrpy>=5.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+# Frozen by the release brief. cli.py is wired by the cli unit; until then the
+# console script exists and reports the missing module.
+chessleak = "src.chessleak.cli:main"
+
+# The importable path of the package is src.chessleak (the entry point above),
+# so the repository root is the package root rather than src/.
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+namespaces = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+# Import from the working tree, so the suite runs whether or not the package has
+# been installed into the active environment.
+pythonpath = ["."]
+addopts = "-ra --strict-markers"
+markers = [
+    "unit: pure logic, no real engine, no real HTTP, no real disk",
+    "integration: real composition (real engine process, real HTTP cassette, real disk); no mocks in the assertion path",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# tools/ holds the release harness (the Pi launcher), not chessleak code, so it
+# is left to its own file's conventions.
+extend-exclude = ["tools"]
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+# src.chessleak is this project's own code (the importable path the frozen
+# console entry point uses), not a third-party package.
+known-first-party = ["src", "src.chessleak"]
