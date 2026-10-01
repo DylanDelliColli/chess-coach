@@ -299,6 +299,48 @@ Folded after the canary merged, before wave 1, as the framework requires.
    (per-worktree venv + editable install in one command) and keeping the literal `~` in
    `Config.cache_dir`'s default, expanded by `cache_path` and `from_env`.
 
+## Unit findings (folded at each wave boundary)
+
+### U2 `chess-4uy`, merged `647123e`
+
+- **Per-position cost, measured on this host** (Stockfish 19, `Threads=2`, `Hash=128`,
+  55 real opening positions, fresh cache): depth 18 mean **0.303 s**, median 0.256 s,
+  max 1.205 s; depth 12 mean **0.076 s**, median 0.024 s. Risk 4's estimate is
+  therefore confirmed: one month archive (~4,700 distinct position keys) is roughly
+  **24 minutes at depth 18**, and U8's `--max-games 30 --depth 12` budget sits well
+  inside five minutes. Within a single game transposition reuse is modest (52 distinct
+  positions, 3 hits across four 15-ply windows); the win comes across games.
+- **python-chess 1.11.2 score API, binding on U5.** `chess.engine.Score` is an abstract
+  base class: `Score(cp=30, mate=None)` raises `TypeError`. The concrete values are
+  `Cp`, `Mate` and the `MateGiven` singleton, and `PovScore` has no `.score()` or
+  `.mate()` of its own. U5's `book.py` stub engine must build `PovScore(Cp(x),
+  board.turn)` and read `score.white()`, or its unit test does not exercise the sign
+  rule at all.
+- **Terminal positions are answered by the board, not the engine**: checkmate is
+  `mate=0, cp=None`; stalemate, insufficient material and the automatic draw rules are
+  `cp=0, mate=None`; claim-based endings are deliberately not terminal. `best_move` is
+  `None` throughout. `severity.move_severity` may detect a terminal evaluation from
+  either `mate == 0` or `best_move is None`.
+- **Cache invalidation on an engine change is not modelled**: the key is exactly
+  `(position_key, depth)` as this record freezes, so a different Stockfish build at the
+  same depth keeps serving old rows. Left as specified and flagged; a future revision
+  could add an engine-version column.
+
+### U3 `chess-xfs`, merged `20fd88e`
+
+- **`read_game` does not raise on a bad move**: python-chess collects into
+  `Game.errors` and stops there. A caller that forgets to check `errors` analyses a
+  corrupt export as a shorter game. `cli.py` must check it.
+- **ECO labels can be chess.com opening URLs.** Precedence is the frozen one (PGN
+  `[ECO]` tag, then the archive value, then `None`), so a cluster whose contributing
+  games are mixed can carry a full URL as its most frequent label. Raised as
+  `chess-egx` (P3): U6 picks the label, U7 renders it, and it must be decided before
+  the report's ranked table exists.
+- `PlyRecord.game_id` is a `str` even when the archive id is an integer, so
+  `cluster.py`'s `(game_id, ply_index)` key is stable.
+- The `config.py` docstring listed `pgnio.py` as a `position_key` consumer; it is not,
+  and the docstring now says so (chief, wave boundary).
+
 ## Alternatives considered
 
 ### The fresh helper's second opinion (light-depth requirement)

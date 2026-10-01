@@ -26,8 +26,11 @@ This module also exports :func:`position_key`, the one position-identity functio
 the release shares. ``board.fen()`` ends in the halfmove clock and the fullmove
 number, so the same board reached by transposition at a different move count is a
 different string; keying the eval cache and the clusters on that string splits one
-position into several. ``pgnio.py``, ``engine.py`` and ``cluster.py`` import
-:func:`position_key` from here rather than re-deriving it.
+position into several. ``engine.py`` and ``cluster.py`` import
+:func:`position_key` from here rather than re-deriving it. (``pgnio.py`` does not:
+``PlyRecord`` is frozen with no key field, so it carries the full FEN and its consumers
+derive the key themselves. Corrected by the chief on 2026-10-01 at the wave boundary,
+after U3 reported the discrepancy.)
 
 ``stockfish_path`` resolves in the order the design record froze:
 ``CHESSLEAK_STOCKFISH_PATH``, then the shared binary that
