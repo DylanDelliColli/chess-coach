@@ -21,6 +21,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 import uuid
 
 # Identity, hashing and worktree rules come from the framework package itself, so a
@@ -149,12 +150,11 @@ def assemble(role, identity, worktree, config, context_extra):
                 f'{identity}; your release bead is {context_extra["release_bead"]}. {assignment}'
                 f'your chief is {context_extra["extra"]["chief"]}. ' + launch.BOOT[role])
     prompt = instruction_file(root, identity, role, instructions)
-    # Pi has no per-launch settings overlay, so the launch identity travels as env
-    # assignments on the command line; BEADS_DIR is what keeps every worker on the
-    # one shared tracker store.
-    args = ['env'] + [f'{key}={value}' for key, value in environment.items()] + [
-        '--provider', config['provider'], '--model', config['model'],
-        '--thinking', config['effort'], '--append-system-prompt', str(prompt)]
+    # Pi has no per-launch settings overlay, and Herdr runs the agent binary itself,
+    # so the launch identity is set on the pane at creation time (see open_pane).
+    # It travels in the context too, so a worker can always see what it should be.
+    args = ['--provider', config['provider'], '--model', config['model'],
+            '--thinking', config['effort'], '--append-system-prompt', str(prompt)]
     if config['unrestricted']:
         # Pi's supported per-launch opt-in for project-local files; it does not
         # disable a host-enforced policy and grants no authority.
@@ -225,6 +225,23 @@ def evaluator_plan(args):
                      'extra': {'candidate': candidate, 'roster_path': str(team['path'])}})
 
 
+def open_pane(plan, workspace, label):
+    """Create the worker's pane with its launch environment, and return the pane id.
+
+    Herdr runs the agent binary itself, so the identity environment has to exist in
+    the pane's shell before the agent starts. BD_ACTOR attributes tracker writes and
+    BEADS_DIR is what keeps every worker on the one shared store; without the latter a
+    worker silently creates a second, empty store in its own worktree.
+    """
+    command = ['herdr', 'tab', 'create', '--workspace', workspace, '--cwd', plan['cwd'],
+               '--label', label, '--no-focus']
+    for key, value in plan['environment'].items():
+        command += ['--env', f'{key}={value}']
+    created = subprocess.run(command, capture_output=True, text=True, check=True)
+    pane = json.loads(created.stdout)['result']['root_pane']['pane_id']
+    return pane
+
+
 def start(plan, pane):
     if os.environ.get('HERDR_ENV') != '1':
         raise ValueError('Starting requires a Herdr-managed caller; preview works without Herdr')
@@ -269,9 +286,23 @@ def main():
                                  help='Omit it and use Pi defaults')
         child.set_defaults(unrestricted=None)
         child.add_argument('--pane')
+        child.add_argument('--open-pane', metavar='WORKSPACE',
+                           help='Create the pane here with the launch environment, then start')
     args = parser.parse_args()
     plan = worker_plan(args) if args.role == 'worker' else evaluator_plan(args)
-    if args.pane:
+    if args.open_pane:
+        pane = open_pane(plan, args.open_pane, plan['context']['identity'])
+        # A pane whose shell has not started yet fails with agent_pane_busy.
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            current = subprocess.run(['herdr', 'pane', 'get', pane], capture_output=True, text=True)
+            if current.returncode == 0 and json.loads(current.stdout)['result']['pane']['cwd'] \
+                    and Path(json.loads(current.stdout)['result']['pane']['cwd']).resolve() \
+                    == Path(plan['cwd']).resolve() and json.loads(current.stdout)['result']['pane'].get('agent_status') == 'unknown':
+                break
+            time.sleep(1)
+        print(json.dumps({'pane': pane, 'cwd': plan['cwd'], 'name': plan['name']}))
+    elif args.pane:
         start(plan, args.pane)
     else:
         print(json.dumps(plan, indent=2, ensure_ascii=False))
