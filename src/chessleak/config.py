@@ -7,18 +7,27 @@ rather than editing this dataclass, so parallel units do not collide.
 
 Defaults and the variables that override them:
 
-===========================  ==============================  ==========================
-field                        default                         environment variable
-===========================  ==============================  ==========================
-``username``                 ``""``                          ``CHESSLEAK_USERNAME``
-``stockfish_path``           shared binary, see below        ``CHESSLEAK_STOCKFISH_PATH``
-``analysis_depth``           ``18``                          ``CHESSLEAK_DEPTH``
-``opening_plies``            ``15``                          ``CHESSLEAK_OPENING_PLIES``
-``cache_dir``                ``~/.cache/chessleak``          ``CHESSLEAK_CACHE_DIR``
-``win_prob_k``               ``0.004``                       ``CHESSLEAK_WIN_PROB_K``
-``book_band_cp``             ``30``                          ``CHESSLEAK_BOOK_BAND_CP``
-``top_n``                    ``20``                          ``CHESSLEAK_TOP_N``
-===========================  ==============================  ==========================
+======================  ======================  ============================  ===================
+field                   default                 variable                      alias
+``username``            ``""``                  ``CHESSLEAK_USERNAME``
+``stockfish_path``      resolved below          ``CHESSLEAK_STOCKFISH_PATH``
+``analysis_depth``      ``18``                  ``CHESSLEAK_ANALYSIS_DEPTH``  ``CHESSLEAK_DEPTH``
+``opening_plies``       ``15``                  ``CHESSLEAK_OPENING_PLIES``
+``cache_dir``           ``~/.cache/chessleak``  ``CHESSLEAK_CACHE_DIR``
+``win_prob_k``          ``0.004``               ``CHESSLEAK_WIN_PROB_K``
+``book_band_cp``        ``30``                  ``CHESSLEAK_BOOK_BAND_CP``
+``top_n``               ``20``                  ``CHESSLEAK_TOP_N``
+======================  ======================  ============================  ===================
+
+``CHESSLEAK_ANALYSIS_DEPTH`` is the canonical name; ``CHESSLEAK_DEPTH`` is kept
+as an alias and only read when the canonical name is unset.
+
+This module also exports :func:`position_key`, the one position-identity function
+the release shares. ``board.fen()`` ends in the halfmove clock and the fullmove
+number, so the same board reached by transposition at a different move count is a
+different string; keying the eval cache and the clusters on that string splits one
+position into several. ``pgnio.py``, ``engine.py`` and ``cluster.py`` import
+:func:`position_key` from here rather than re-deriving it.
 
 ``stockfish_path`` resolves in the order the design record froze:
 ``CHESSLEAK_STOCKFISH_PATH``, then the shared binary that
@@ -39,6 +48,7 @@ from pathlib import Path
 
 __all__ = [
     "Config",
+    "position_key",
     "DEFAULT_ANALYSIS_DEPTH",
     "DEFAULT_BOOK_BAND_CP",
     "DEFAULT_CACHE_DIR",
@@ -68,7 +78,9 @@ EVAL_CACHE_FILENAME = "evalcache.sqlite"
 ENV_USERNAME = "CHESSLEAK_USERNAME"
 ENV_STOCKFISH_PATH = "CHESSLEAK_STOCKFISH_PATH"
 ENV_STOCKFISH_ROOT = "CHESSLEAK_STOCKFISH_ROOT"
-ENV_DEPTH = "CHESSLEAK_DEPTH"
+#: Canonical name, then the alias the first cut of this module shipped.
+ENV_ANALYSIS_DEPTH = "CHESSLEAK_ANALYSIS_DEPTH"
+ENV_ANALYSIS_DEPTH_ALIAS = "CHESSLEAK_DEPTH"
 ENV_OPENING_PLIES = "CHESSLEAK_OPENING_PLIES"
 ENV_CACHE_DIR = "CHESSLEAK_CACHE_DIR"
 ENV_WIN_PROB_K = "CHESSLEAK_WIN_PROB_K"
@@ -96,6 +108,22 @@ def _env_int(env: Mapping[str, str], name: str, default: int) -> int:
         raise ValueError(f"{name} must be an integer, got {raw!r}") from None
 
 
+def _depth_from_env(env: Mapping[str, str], default: int) -> int:
+    """Read the analysis depth: canonical name first, then its alias.
+
+    A non-numeric value raises ``ValueError`` naming whichever variable supplied
+    it, so the message points at the name the operator actually set.
+    """
+    for name in (ENV_ANALYSIS_DEPTH, ENV_ANALYSIS_DEPTH_ALIAS):
+        raw = _env(env, name)
+        if raw is not None:
+            try:
+                return int(raw)
+            except ValueError:
+                raise ValueError(f"{name} must be an integer, got {raw!r}") from None
+    return default
+
+
 def _env_float(env: Mapping[str, str], name: str, default: float) -> float:
     raw = _env(env, name)
     if raw is None:
@@ -108,6 +136,21 @@ def _env_float(env: Mapping[str, str], name: str, default: float) -> float:
 
 def _expand(path: str) -> str:
     return str(Path(path).expanduser())
+
+
+def position_key(fen: str) -> str:
+    """The identity of a position: placement, side to move, castling, ep square.
+
+    ``board.fen()`` appends the halfmove clock and the fullmove number, so the
+    same board reached by transposition at a different move count is a different
+    string; keying an eval cache or a cluster on the raw FEN splits one position
+    into several entries. The design record pins the key as the first four FEN
+    fields. Nothing else in the release re-derives it.
+
+    The en passant square stays in the key even when no capture is available for
+    it, because FEN records the double push, not its consequences.
+    """
+    return " ".join(fen.split()[:4])
 
 
 def stockfish_root(env: Mapping[str, str] | None = None) -> Path:
@@ -164,7 +207,7 @@ class Config:
         return cls(
             username=_env(env, ENV_USERNAME, "") or "",
             stockfish_path=resolve_stockfish_path(env),
-            analysis_depth=_env_int(env, ENV_DEPTH, DEFAULT_ANALYSIS_DEPTH),
+            analysis_depth=_depth_from_env(env, DEFAULT_ANALYSIS_DEPTH),
             opening_plies=_env_int(env, ENV_OPENING_PLIES, DEFAULT_OPENING_PLIES),
             cache_dir=_expand(_env(env, ENV_CACHE_DIR, DEFAULT_CACHE_DIR) or DEFAULT_CACHE_DIR),
             win_prob_k=_env_float(env, ENV_WIN_PROB_K, DEFAULT_WIN_PROB_K),
