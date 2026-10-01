@@ -235,6 +235,9 @@ def open_pane(plan, workspace, label):
     """
     command = ['herdr', 'tab', 'create', '--workspace', workspace, '--cwd', plan['cwd'],
                '--label', label, '--no-focus']
+    # This host's ~/.bashrc ends with an unconditional `cd ~/dev-env`, which overrides
+    # the directory Herdr started the pane in. HERDR_KEEP_CWD is that guard's opt-out.
+    command += ['--env', 'HERDR_KEEP_CWD=1']
     for key, value in plan['environment'].items():
         command += ['--env', f'{key}={value}']
     created = subprocess.run(command, capture_output=True, text=True, check=True)
@@ -292,16 +295,21 @@ def main():
     plan = worker_plan(args) if args.role == 'worker' else evaluator_plan(args)
     if args.open_pane:
         pane = open_pane(plan, args.open_pane, plan['context']['identity'])
-        # A pane whose shell has not started yet fails with agent_pane_busy.
-        deadline = time.monotonic() + 60
+        # A pane whose shell has not started yet fails with agent_pane_busy, and one
+        # that lost its working directory would give the agent the wrong repository.
+        deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
             current = subprocess.run(['herdr', 'pane', 'get', pane], capture_output=True, text=True)
-            if current.returncode == 0 and json.loads(current.stdout)['result']['pane']['cwd'] \
-                    and Path(json.loads(current.stdout)['result']['pane']['cwd']).resolve() \
-                    == Path(plan['cwd']).resolve() and json.loads(current.stdout)['result']['pane'].get('agent_status') == 'unknown':
+            pane_state = json.loads(current.stdout)['result']['pane'] if current.returncode == 0 else {}
+            if Path(pane_state.get('cwd') or '.').resolve() == Path(plan['cwd']).resolve():
                 break
             time.sleep(1)
-        print(json.dumps({'pane': pane, 'cwd': plan['cwd'], 'name': plan['name']}))
+        else:
+            raise ValueError(f'pane {pane} did not open in {plan["cwd"]}; its shell reports '
+                             f'{pane_state.get("cwd")}. Close it and retry; never type into a menu.')
+        time.sleep(2)
+        print(json.dumps({'pane': pane, 'cwd': plan['cwd'], 'name': plan['name']}), flush=True)
+        start(plan, pane)
     elif args.pane:
         start(plan, args.pane)
     else:
