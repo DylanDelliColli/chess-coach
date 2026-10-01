@@ -15,6 +15,7 @@ than a look-alike dataclass.
 
 from __future__ import annotations
 
+import dataclasses
 import io
 import logging
 
@@ -68,8 +69,19 @@ class StubEngine:
         reply = self.replies[position_key(board.fen())]
         if isinstance(reply, EvalResult):
             return reply
-        score = ce.PovScore(ce.Cp(reply), board.turn)
+        # The engine's raw score is the side to move's, and PovScore's first
+        # argument is written in its second argument's point of view: a white
+        # score of `reply` on a black-to-move board is therefore Cp(-reply) from
+        # black's side. Reading .white() is the read that means "white's
+        # evaluation of this position", which is the sign rule this whole unit
+        # depends on - .relative() would hand back the side-to-move figure and
+        # sign-flip every black ply.
+        side_to_move_cp = reply if board.turn == chess.WHITE else -reply
+        score = ce.PovScore(ce.Cp(side_to_move_cp), board.turn)
         assert score.white().score() == reply, "the stub must answer as engine.py reads"
+        assert score.relative.score() == side_to_move_cp, (
+            "the side-to-move read is the other sign: that is the trap, not the answer"
+        )
         best = sorted(m.uci() for m in board.legal_moves)
         return EvalResult(
             cp=score.white().score(),
@@ -80,11 +92,19 @@ class StubEngine:
 
 
 def line_plies(line: str, *, my_color: str = "white", game_id: str = "unit-game"):
-    """Real ply records for a numbered SAN line, extracted by the real extractor."""
-    moves = line.split()
-    numbered = " ".join(
-        move if index % 2 else f"{index // 2 + 1}." for index, move in enumerate(moves)
-    )
+    """Real ply records for a numbered SAN line, extracted by the real extractor.
+
+    The line is re-numbered from its moves rather than from its tokens: a numbered
+    line and an unnumbered one have different token parities, so numbering by
+    token index silently replaces every white move with a move number.
+    """
+    moves = [token for token in line.split() if not token.endswith(".")]
+    parts: list[str] = []
+    for index, token in enumerate(moves):
+        if index % 2 == 0:
+            parts.append(f"{index // 2 + 1}.")
+        parts.append(token)
+    numbered = " ".join(parts)
     pgn = (
         '[Event "book trigger unit fixture"]\n'
         '[Site "?"]\n'
@@ -231,14 +251,27 @@ def test_only_the_players_moves_are_walked() -> None:
     plies = line_plies(BOOK_LINE, my_color="black")
     black_plies = [ply for ply in plies if ply.is_my_move]
     assert len(black_plies) == 7
+    assert plies[0].is_my_move is False, "the fixture's first ply is the opponent's"
 
-    # Every position in the line answers with a 900 cp loss, so anything reported
-    # can only have come from a player move.
-    table = replies_for(plies, value=-900)
+    # Two moves leave the band, and only one of them is the player's. A ply's gap
+    # is the fall between the position before it and the position after it, in
+    # the *player's* currency, and the table answers in white's: for a black
+    # player a leak is a rise in white's evaluation. So the opponent's 1.e4 (ply
+    # 0) leaves 900 cp on the table, and the player's 2...Nc6 (ply 3) leaves 300.
+    # The flag must be the player's ply and never the opponent's, which is
+    # earlier in the window and much worse.
+    table = replies_for(
+        plies,
+        value=0,
+        after={plies[0].fen_after: 900, plies[3].fen_after: 300},
+    )
     flag = first_deviation(plies, StubEngine(table), band_cp=BAND)
 
     assert flag is not None
-    assert flag.ply_index == black_plies[0].ply_index == 1
+    assert flag.ply_index == 3
+    assert flag.cp_gap == 300
+    assert flag.my_move == plies[3].move_san == "Nc6"
+    assert black_plies[0].ply_index == 1, "the player's first move is in book"
 
 
 def test_records_are_walked_in_ply_order() -> None:
@@ -251,11 +284,17 @@ def test_records_are_walked_in_ply_order() -> None:
     plies = line_plies(BOOK_LINE)
     deviating = [ply.ply_index for ply in plies if ply.ply_index in (6, 14)]
 
-    table = {}
-    for ply in plies:
-        gap = 300 if ply.ply_index in deviating else 0
-        table[position_key(ply.fen_before)] = 30
-        table[position_key(ply.fen_after)] = 30 - gap
+    # A position's evaluation is also the position after the ply before it, so a
+    # ply's gap is raised by raising the position it was played *from*: ply 6 is
+    # 300 cp worse than the position before it, and ply 14 (the last, whose after
+    # position belongs to no ply) by lowering the position after it.
+    table = replies_for(
+        plies,
+        value=30,
+        before={plies[6].fen_before: 330},
+        after={plies[14].fen_after: -270},
+    )
+    assert {plies[6].ply_index, plies[14].ply_index} == set(deviating)
 
     flag = first_deviation(list(reversed(plies)), StubEngine(table), band_cp=BAND)
 
@@ -274,20 +313,23 @@ def test_a_black_player_who_hangs_a_piece_is_flagged_with_a_positive_gap() -> No
     out as a 200 centipawn *gain* and never be flagged at all.
     """
     plies = line_plies(BLACK_LINE, my_color="black")
-    last = plies[-1]
-    assert last.is_my_move and last.move_san == "gxf6"
+    # The leaking ply is 5...gxf6; the line then continues with 6.Nf3, which is
+    # white's move and must not be the ply the flag names.
+    leak = plies[9]
+    assert leak.is_my_move and leak.move_san == "gxf6"
+    assert plies[-1].is_my_move is False
 
     table = replies_for(
         plies,
         value=0,
-        after={last.fen_after: 200},
-        before={last.fen_before: best_in(last.fen_before, "exf6", cp=0)},
+        after={leak.fen_after: 200},
+        before={leak.fen_before: best_in(leak.fen_before, "exf6", cp=0)},
     )
 
     flag = first_deviation(plies, StubEngine(table), band_cp=BAND)
 
     assert flag is not None
-    assert flag.ply_index == last.ply_index == 9
+    assert flag.ply_index == leak.ply_index == 9
     assert flag.my_move == "gxf6"
     assert flag.best_move == "exf6"
     assert flag.cp_gap == 200
@@ -296,9 +338,10 @@ def test_a_black_player_who_hangs_a_piece_is_flagged_with_a_positive_gap() -> No
 def test_a_black_player_who_improves_is_not_flagged() -> None:
     """The mirror image: Black improving reads as a gain, not as a deviation."""
     plies = line_plies(BLACK_LINE, my_color="black")
-    last = plies[-1]
+    leak = plies[9]
+    assert leak.is_my_move and leak.move_san == "gxf6"
 
-    table = replies_for(plies, value=0, after={last.fen_after: -200})
+    table = replies_for(plies, value=0, after={leak.fen_after: -200})
 
     assert first_deviation(plies, StubEngine(table), band_cp=BAND) is None
 
@@ -317,10 +360,15 @@ def test_giving_up_a_forced_mate_is_a_deviation() -> None:
     last = plies[-1]
     assert last.is_my_move
 
+    # The mate score is a stub, because the unit test pins the arithmetic and
+    # test_real_mate_score_scores_as_a_whole_win measures it against a real
+    # engine. The engine's move is 3.Bxf7+, which mates in two; the player played
+    # 3.Qh5 and is level. Bxf7+ is the side to move's own move, which is the only
+    # way the SAN can be named from the board.
     table = replies_for(
         plies,
         value=0,
-        before={last.fen_before: best_in(last.fen_before, "Nf6", cp=None, mate=2)},
+        before={last.fen_before: best_in(last.fen_before, "Bxf7+", cp=None, mate=2)},
     )
 
     flag = first_deviation(plies, StubEngine(table), band_cp=BAND)
@@ -328,7 +376,7 @@ def test_giving_up_a_forced_mate_is_a_deviation() -> None:
     assert flag is not None
     assert flag.cp_gap == MATE_CP
     assert flag.cp_gap > BAND
-    assert flag.best_move == "Nf6"
+    assert flag.best_move == "Bxf7+"
 
 
 def test_a_mate_the_player_delivers_is_not_a_deviation() -> None:
@@ -338,17 +386,18 @@ def test_a_mate_the_player_delivers_is_not_a_deviation() -> None:
     the board is what says who is mated: the side to move after the player's
     move, which is the opponent.
     """
-    plies = line_plies(MATE_LINE)
+    plies = line_plies(MATE_LINE, my_color="black")
     last = plies[-1]
-    assert last.is_my_move and last.move_san == "Qh4+"
+    assert last.is_my_move and last.move_san == "Qh4#"
     assert chess.Board(last.fen_after).is_checkmate()
 
+    # The position after the player's move is the one ``engine.py`` answers from
+    # the board: mate zero, no centipawn value, and no move to play. It is the
+    # best outcome there is, and the flag has to read it that way.
     table = replies_for(
         plies,
         value=0,
-        before={
-            last.fen_before: EvalResult(cp=None, mate=0, best_move=None, depth=DEPTH)
-        },
+        after={last.fen_after: EvalResult(cp=None, mate=0, best_move=None, depth=DEPTH)},
     )
 
     assert first_deviation(plies, StubEngine(table), band_cp=BAND) is None
@@ -362,9 +411,7 @@ def test_a_position_with_no_move_to_play_is_not_a_deviation() -> None:
     table = replies_for(
         plies,
         value=0,
-        before={
-            last.fen_before: EvalResult(cp=0, mate=None, best_move=None, depth=DEPTH)
-        },
+        before={last.fen_before: EvalResult(cp=0, mate=None, best_move=None, depth=DEPTH)},
     )
 
     assert first_deviation(plies, StubEngine(table), band_cp=BAND) is None
@@ -379,9 +426,7 @@ def test_an_engine_move_illegal_in_the_record_is_logged_not_trusted(caplog) -> N
     table = replies_for(
         plies,
         value=0,
-        before={
-            last.fen_before: EvalResult(cp=0, mate=None, best_move="a1a8", depth=DEPTH)
-        },
+        before={last.fen_before: EvalResult(cp=0, mate=None, best_move="a1a8", depth=DEPTH)},
     )
 
     with caplog.at_level(logging.WARNING, logger="src.chessleak.book"):
@@ -409,7 +454,7 @@ def test_the_flag_is_a_frozen_dataclass_with_the_frozen_fields() -> None:
     assert (flag.game_id, flag.ply_index) == ("g1", 6)
     assert flag.my_move == "e4" and flag.best_move == "d5"
     assert flag.cp_gap >= 0
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         flag.cp_gap = 50  # frozen: a flag a consumer could mutate would rank wrong
 
 
