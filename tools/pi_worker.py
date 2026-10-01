@@ -251,10 +251,16 @@ def start(plan, pane):
     current = json.loads(subprocess.check_output(['herdr', 'pane', 'get', pane], text=True))
     if Path(current['result']['pane']['cwd']).resolve() != Path(plan['cwd']).resolve():
         raise ValueError('Target pane must already be in the selected checkout')
-    result = subprocess.run(['herdr', 'agent', 'start', plan['name'], '--kind', plan['kind'],
-                             '--pane', pane, '--timeout', str(STARTUP_TIMEOUT_MS),
-                             '--', *plan['args'], plan['boot']],
-                            capture_output=True, text=True)
+    # A pane whose shell is still starting reports agent_pane_busy; that is a wait,
+    # not a failure, so give it a bounded grace period before giving up.
+    for attempt in range(12):
+        result = subprocess.run(['herdr', 'agent', 'start', plan['name'], '--kind', plan['kind'],
+                                 '--pane', pane, '--timeout', str(STARTUP_TIMEOUT_MS),
+                                 '--', *plan['args'], plan['boot']],
+                                capture_output=True, text=True)
+        if result.returncode == 0 or launch.herdr_error(result).get('code') != 'agent_pane_busy':
+            break
+        time.sleep(5)
     if result.stdout:
         print(result.stdout.rstrip('\n'))
     if result.returncode == 0:
