@@ -170,7 +170,7 @@ def test_classification_thresholds() -> None:
     to it a sample happened to land.
     """
     thresholds = [
-        (INACCURACY_DROP, INACCURITY, OK),
+        (INACCURACY_DROP, INACCURACY, OK),
         (MISTAKE_DROP, MISTAKE, INACCURACY),
         (BLUNDER_DROP, BLUNDER, MISTAKE),
     ]
@@ -185,7 +185,9 @@ def test_classification_thresholds() -> None:
         better = math.ceil(boundary)
 
         assert move_severity(eval_of_cp(0), eval_of_cp(worse), chess.WHITE).klass == at_threshold
-        assert move_severity(eval_of_cp(0), eval_of_cp(better), chess.WHITE).klass == below_threshold
+        assert (
+            move_severity(eval_of_cp(0), eval_of_cp(better), chess.WHITE).klass == below_threshold
+        )
 
 
 def test_scale_is_the_operators_scale() -> None:
@@ -217,9 +219,7 @@ def test_severity_reports_the_centipawn_loss_and_the_drop() -> None:
 
     assert isinstance(severity, Severity)
     assert severity.cp_loss == 400
-    assert severity.winprob_drop == pytest.approx(
-        cp_to_winprob(40) - cp_to_winprob(-360)
-    )
+    assert severity.winprob_drop == pytest.approx(cp_to_winprob(40) - cp_to_winprob(-360))
     assert severity.klass == BLUNDER
     assert 0.0 <= severity.winprob_drop <= 1.0
 
@@ -398,7 +398,14 @@ def test_the_curve_matches_the_real_pov_score_sign_rule() -> None:
     board.push_uci("e2e4")
     assert board.turn == chess.BLACK, "the fixture needs a black-to-move board"
 
-    score = ce.PovScore(ce.Cp(35), board.turn)
+    # The engine's raw "score cp" is the side to move's, which is the shape the
+    # UCI parser hands python-chess: a black-to-move board where white is +35
+    # carries a side-to-move score of -35. Reading .relative() therefore returns
+    # -35 and reading .white() returns +35, which is the sign rule the whole
+    # release depends on. (The constructor's first argument is the score in the
+    # second argument's point of view, so "white is +35 on a black-to-move
+    # board" is PovScore(Cp(-35), BLACK), not PovScore(Cp(35), BLACK).)
+    score = ce.PovScore(ce.Cp(-35), board.turn)
 
     assert score.white().score() == 35, "the fixture must read +35 as white"
     assert score.relative.score() == -35, "the side-to-move read sign-flips it"
