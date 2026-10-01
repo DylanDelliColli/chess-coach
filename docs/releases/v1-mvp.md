@@ -92,13 +92,18 @@ transport or disk appears in an integration assertion path.
 
 ## Size and team
 
-Nine beads, six units, dispatched over four waves. Three concurrent workers while
+Nine beads, eight units, dispatched over six waves (the canary is its own wave).
+Corrected by the chief on 2026-10-01: this paragraph first said "six units, four
+waves", which contradicted both the design record's own table and the tracker graph.
+No product commitment changed. Three concurrent workers while
 the host also runs another release's team; Stockfish runs are CPU-bound, so a
 worker checks host load before a heavy analysis job. Wall-clock envelope:
 roughly one focused working day of build plus evaluation and repair rounds, given
 the scaffold lands quickly — this is an estimate, not a commitment, and the
 backlog's own dependencies (scaffold → engine/fetch/extract → severity → cluster →
-report → CLI) are sequential at the ends.
+report → CLI) are sequential at the ends. The report unit follows the cluster unit
+because the operator's tracker has `chess-2m3` blocked by `chess-usk`; the chief has
+asked whether that blocker may be dropped, which would shorten the release by one wave.
 
 ## Team and models
 
