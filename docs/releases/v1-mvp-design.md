@@ -177,6 +177,12 @@ never correctness.
 - **Network determinism.** The default test mode replays cassettes with
   `record_mode="none"`; live recording is gated behind `CHESSLEAK_LIVE=1`. The required
   per-unit check must therefore never touch the network by default.
+- **The quiet channel is bead comments, not Herdr.** `herdr agent prompt` rejects Pi
+  agents on this host (Herdr reports no session id for the Pi kind) and `send-keys`
+  takes key names only, so neither side can push a message. Workers record done,
+  blocked-on-authority and unresolved-conflict signals on their own bead plus one line
+  on `chess-r0o`; the chief writes to a worker by commenting on its primary bead and
+  pulls state at wave boundaries. Recorded on `chess-r0o` comment 3.
 - **Tracker.** `br`, with `BD_ACTOR` per worker and `BEADS_DIR` pointed at the shared
   store. (`BD_ACTOR` is the variable name br reads — verified by claim probes on
   2026-10-01 — despite the `bd` lineage of the name.) A worker that finds no
