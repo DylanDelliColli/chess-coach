@@ -272,6 +272,33 @@ share the per-move evaluation path and ship as a single review.
 test run — before three workers commit to a design that assumes it. Its findings
 revise this record and the undispatched beads before wave 1.
 
+## Canary findings (U1, `chess-bb8`, merged `f15830c`)
+
+Folded after the canary merged, before wave 1, as the framework requires.
+
+1. **The premise held, and it was the right canary.** No engine existed anywhere on
+   this host. `Stockfish 19` is now installed at `~/.local/share/chessleak/stockfish/`
+   from the official `sf_19` linux-x86-64-universal asset; `scripts/get_stockfish.sh`
+   prints the apt route (`stockfish 16`) as a fallback. A from-scratch `.venv` takes
+   8.6 s with pip's cache shared, so the per-worktree environment is cheap.
+2. **The white-POV rule is a real trap, now measured.** python-chess >= 1.10 returns a
+   side-to-move `PovScore`; on a black-to-move board, `score.relative` is `+30` where
+   `score.white()` is `-30`. It only looks correct on a white-to-move fixture, which is
+   why the beads' `mate == 1` assertion passes under either convention. `engine.py` must
+   read `info["score"].white()`. Binding on U2 and U5.
+3. **A worker branched before the record's revision, and lost an item.** This unit's
+   branch predated revision 2, and one of the four amendment items was missed
+   (`position_key`). Chief amendments travel as bead comments and are read whenever the
+   worker next reads its bead — not continuously. Wave-1 dispatches start from the
+   current release tip so this costs nothing, but the lesson stands: a running worker
+   cannot be interrupted, so amendments must be additive and self-contained.
+4. **Cost.** The canary unit took two sessions and roughly 4.5M tokens of context on
+   `stealth/space-bunny-alpha` at `xhigh` for a scaffold. Measured, not estimated; the
+   retrospective compares this with the other units' cost before drawing conclusions.
+5. **Additions the canary made beyond its bead**, both accepted: `scripts/setup_env.sh`
+   (per-worktree venv + editable install in one command) and keeping the literal `~` in
+   `Config.cache_dir`'s default, expanded by `cache_path` and `from_env`.
+
 ## Alternatives considered
 
 ### The fresh helper's second opinion (light-depth requirement)
