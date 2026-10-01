@@ -1,0 +1,30 @@
+% chessleak test fixture: one real game from the same public chess.com archive as
+% games_multi.pgn ('jefferyx', 2026-10-01), copied verbatim:
+%   https://api.chess.com/pub/player/jefferyx/games/2026/09
+% Selection rule: the first game of that archive in which the account played Black
+% and whose mainline is longer than 15 plies, so the fixture exercises the
+% account's second colour and a full opening window.
+[Event "Live Chess"]
+[Site "Chess.com"]
+[Date "2026.09.01"]
+[Round "-"]
+[White "zverr1"]
+[Black "jefferyx"]
+[Result "1/2-1/2"]
+[Tournament "https://www.chess.com/tournament/live/titled-tuesday-blitz-september-01-2026-31074565"]
+[CurrentPosition "8/2k5/1p2p3/p3P1p1/P5Pp/2K4P/1P6/8 b - - 30 58"]
+[Timezone "UTC"]
+[ECO "D30"]
+[ECOUrl "https://www.chess.com/openings/Queens-Gambit-Declined-Semi-Slav-Defense-Quiet-Variation"]
+[UTCDate "2026.09.01"]
+[UTCTime "15:00:00"]
+[WhiteElo "2735"]
+[BlackElo "3249"]
+[TimeControl "300"]
+[Termination "Game drawn by repetition"]
+[StartTime "15:00:00"]
+[EndDate "2026.09.01"]
+[EndTime "15:09:52"]
+[Link "https://www.chess.com/game/live/182588301475"]
+
+1. d4 {[%clk 0:04:55.7]} 1... d5 {[%clk 0:04:51.6]} 2. c4 {[%clk 0:04:51]} 2... e6 {[%clk 0:04:31.3]} 3. Nf3 {[%clk 0:04:48.2]} 3... c6 {[%clk 0:04:29.5]} 4. e3 {[%clk 0:04:46.1]} 4... Nf6 {[%clk 0:04:28.4]} 5. Nbd2 {[%clk 0:04:40]} 5... b6 {[%clk 0:04:24.1]} 6. Bd3 {[%clk 0:04:35.8]} 6... Na6 {[%clk 0:04:23.3]} 7. a3 {[%clk 0:04:32.4]} 7... Be7 {[%clk 0:04:20.3]} 8. Qa4 {[%clk 0:04:19.7]} 8... Nb8 {[%clk 0:04:10.7]} 9. e4 {[%clk 0:04:07.5]} 9... dxc4 {[%clk 0:04:06.6]} 10. Qxc4 {[%clk 0:04:05.2]} 10... Ba6 {[%clk 0:04:06.1]} 11. Qc2 {[%clk 0:04:00.5]} 11... Bxd3 {[%clk 0:04:06]} 12. Qxd3 {[%clk 0:04:00.4]} 12... O-O {[%clk 0:04:05.8]} 13. O-O {[%clk 0:03:57.5]} 13... c5 {[%clk 0:04:01.2]} 14. Rd1 {[%clk 0:03:35.2]} 14... Nc6 {[%clk 0:03:59.9]} 15. Nc4 {[%clk 0:03:30.1]} 15... Nxd4 {[%clk 0:03:51.6]} 16. Nxd4 {[%clk 0:03:30]} 16... Qxd4 {[%clk 0:03:50.8]} 17. Qxd4 {[%clk 0:03:29.2]} 17... cxd4 {[%clk 0:03:50.7]} 18. e5 {[%clk 0:03:20.3]} 18... Nd5 {[%clk 0:03:49.6]} 19. Rxd4 {[%clk 0:03:11.8]} 19... Rac8 {[%clk 0:03:48.9]} 20. Ne3 {[%clk 0:02:53.4]} 20... Bc5 {[%clk 0:03:36.8]} 21. Rd3 {[%clk 0:02:35]} 21... Nf4 {[%clk 0:03:02.8]} 22. Rd7 {[%clk 0:02:20.5]} 22... a5 {[%clk 0:03:01.7]} 23. g3 {[%clk 0:02:15.5]} 23... Ne2+ {[%clk 0:02:32.2]} 24. Kf1 {[%clk 0:02:14.3]} 24... Nxc1 {[%clk 0:02:00.3]} 25. Rxc1 {[%clk 0:02:14.2]} 25... Bxe3 {[%clk 0:01:59.8]} 26. Rxc8 {[%clk 0:02:12.1]} 26... Rxc8 {[%clk 0:01:59.7]} 27. fxe3 {[%clk 0:02:11.4]} 27... Kf8 {[%clk 0:01:58.8]} 28. Ke2 {[%clk 0:02:07.8]} 28... Rc2+ {[%clk 0:01:57.2]} 29. Rd2 {[%clk 0:02:07]} 29... Rxd2+ {[%clk 0:01:56.7]} 30. Kxd2 {[%clk 0:02:06.9]} 30... Ke7 {[%clk 0:01:56.3]} 31. Kc3 {[%clk 0:02:03.3]} 31... Kd7 {[%clk 0:01:55.2]} 32. a4 {[%clk 0:01:59.4]} 32... Kc6 {[%clk 0:01:51]} 33. Kc4 {[%clk 0:01:50.6]} 33... h5 {[%clk 0:01:48.1]} 34. e4 {[%clk 0:01:40.5]} 34... Kc7 {[%clk 0:01:01.6]} 35. Kd4 {[%clk 0:01:33.5]} 35... Kb7 {[%clk 0:00:59.4]} 36. Kc3 {[%clk 0:01:25.7]} 36... g5 {[%clk 0:00:45.5]} 37. h3 {[%clk 0:01:22.2]} 37... h4 {[%clk 0:00:40.4]} 38. g4 {[%clk 0:01:09.3]} 38... Kc7 {[%clk 0:00:38.9]} 39. Kd3 {[%clk 0:01:04.7]} 39... Kd7 {[%clk 0:00:38.1]} 40. Kc3 {[%clk 0:00:45.1]} 40... Ke7 {[%clk 0:00:37.3]} 41. Kd4 {[%clk 0:00:44]} 41... f6 {[%clk 0:00:26.9]} 42. exf6+ {[%clk 0:00:39.7]} 42... Kxf6 {[%clk 0:00:26.8]} 43. e5+ {[%clk 0:00:38.2]} 43... Ke7 {[%clk 0:00:25.8]} 44. Kc4 {[%clk 0:00:35.7]} 44... Kd7 {[%clk 0:00:25.4]} 45. Kd4 {[%clk 0:00:27]} 45... Kc7 {[%clk 0:00:24.8]} 46. Kc3 {[%clk 0:00:24.9]} 46... Kb7 {[%clk 0:00:24]} 47. Kd4 {[%clk 0:00:22.9]} 47... Ka7 {[%clk 0:00:23.3]} 48. Kc3 {[%clk 0:00:22.1]} 48... Kb8 {[%clk 0:00:22.4]} 49. Kd4 {[%clk 0:00:21.2]} 49... Kc7 {[%clk 0:00:21.6]} 50. Kc3 {[%clk 0:00:20.9]} 50... Kb7 {[%clk 0:00:20.6]} 51. Kd4 {[%clk 0:00:20.5]} 51... Ka6 {[%clk 0:00:19.3]} 52. Kc4 {[%clk 0:00:19.8]} 52... Ka7 {[%clk 0:00:18.8]} 53. Kd4 {[%clk 0:00:19.6]} 53... Kb8 {[%clk 0:00:18]} 54. Kc3 {[%clk 0:00:18.6]} 54... Kc7 {[%clk 0:00:17.6]} 55. Kd4 {[%clk 0:00:18.5]} 55... Kd7 {[%clk 0:00:17]} 56. Kc3 {[%clk 0:00:17.4]} 56... Kc6 {[%clk 0:00:16.7]} 57. Kc4 {[%clk 0:00:16.9]} 57... Kc7 {[%clk 0:00:16.4]} 58. Kc3 {[%clk 0:00:15.5]} 1/2-1/2
