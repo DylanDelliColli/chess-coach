@@ -245,8 +245,11 @@ class EngineService:
         if terminal is not None:
             return terminal
 
-        engine = self._engine_handle()
+        # The board the engine is asked about is the board the key names, so the
+        # answer a cache row freezes is a property of the position.
         board = _search_position(board)
+
+        engine = self._engine_handle()
         # ucinewgame before the search, not after the last one: a stale
         # transposition table is an earlier position's opinion of this one, and
         # the engine answers with it. Both lines go out under self._lock, so no
