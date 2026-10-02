@@ -6,16 +6,19 @@ at the release's own depth. Where a fixture claims a move hung a piece, the test
 plays the engine's own reply and asks the board whether the piece is gone, so
 "hanging piece" is evidence rather than a description.
 
-Measured on this host with Stockfish 19 at depth 18, ``Threads=1``; the numbers
-in the comments are that measurement and the assertions are written as bounds,
-not as equalities, so a different build of the same engine cannot make them lie.
+Measured on this host with Stockfish 19 at depth 18; the numbers in the comments
+are that measurement and the assertions are written as bounds, not as equalities,
+so a different build of the same engine cannot make them lie.
 
-``Threads=1`` rather than the service's default of 2, because Stockfish's
-multi-threaded search is not reproducible: on this host the same position at
-depth 18 came back as +1, 0, +13 and -2 cp with two different best moves across
-four separate processes. A test whose assertions *are* measurements needs a
-search that answers the same way twice, and one thread is also the gentlest way
-to borrow a host several workers share.
+The search itself is the service's default: one thread, and a ``ucinewgame``
+before every position. Both are there for the same reason, which is that a test
+whose assertions *are* measurements needs a search that answers the same way
+twice. Multi-threaded search is not reproducible even within one analysis (on
+this host the same position at depth 18 came back as +1, 0, +13 and -2 cp with
+two different best moves across four processes), and an engine that is not reset
+between positions carries its transposition table from one into the next, which
+moves a score by tens of centipawns. ``ENGINE_OPTIONS`` below spells the default
+out rather than inheriting it, so what this file measures is visible in the file.
 """
 
 from __future__ import annotations
@@ -103,8 +106,9 @@ def engine_path() -> str:
     return path
 
 
-#: The options this file searches with: one thread, so every measurement above is
-#: reproducible. See the module docstring.
+#: The options this file searches with, which are the service's own defaults:
+#: one thread, so every measurement above is reproducible. See the module
+#: docstring.
 ENGINE_OPTIONS = {"Threads": "1", "Hash": "128"}
 
 
@@ -413,8 +417,14 @@ def test_real_mate_score_scores_as_a_whole_win(engine: EngineService) -> None:
     walked_away = play(MATE_IN_ONE_FEN, "d1h5")  # Qh5: legal, and gives up the mate
     after_evaluation = engine.analyse(walked_away.fen())
     assert after_evaluation.mate is None, "the fixture only works if the mate is gone"
-    assert abs(after_evaluation.cp or 0) <= 20, (
-        f"the fixture needs Qh5 to leave the position level, measured {after_evaluation.cp}"
+    # Qh5 walks away from a mate in one and leaves an ordinary, roughly level
+    # position. The band is 40 cp rather than a tight one: before the engine sent
+    # `ucinewgame` between positions, this number came out of whatever was left in
+    # the transposition table by the mate search above, so a tight bound only held
+    # by accident. What this test is about is that *giving up the mate* costs the
+    # whole of the win probability, which the assertions below pin.
+    assert abs(after_evaluation.cp or 0) <= 40, (
+        f"the fixture needs Qh5 to leave the position roughly level, measured {after_evaluation.cp}"
     )
 
     severity = move_severity(before, after_evaluation, "white")
