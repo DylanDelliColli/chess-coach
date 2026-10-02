@@ -49,7 +49,11 @@ unusual position. Each cluster reports occurrences, the player's usual moves wit
 counts, the engine's best move, average and maximum win% lost, and a deviation
 marker when deviations were flagged there.
 
-### O3 — Severity in win-probability terms
+### O3 — Severity in centipawn bands, win% for display
+*Ruled by the operator on 2026-10-02, replacing the original 2026-06-05 win-probability
+thresholds: classification is `ok < 50`, `inaccuracy 50-100`, `mistake 100-200`,
+`blunder >= 200` centipawns, and the win-probability loss (computed with
+`Config.win_prob_k`) is shown as a display figure rather than being the classifier.*
 
 *Surfaces: the severity classification consumed by clustering and the report; the
 per-move win% figures in the report.*
@@ -146,6 +150,11 @@ asked whether that blocker may be dropped, which would shorten the release by on
 
 ## Real inputs and journeys
 
+The **validation account is `kijuu11`**, the operator's own (operator, 2026-10-02).
+Committed cassettes stay on non-personal accounts: this repository's remote is public, and
+a committed cassette would copy the operator's playing record into it. The live run against
+`kijuu11` is local, and its cache and report stay untracked.
+
 Real input family: one chess.com account's public monthly archives (JSON with
 embedded PGN). Data policy: public data, no authentication, no personal data beyond
 what the account publishes.
@@ -195,7 +204,7 @@ frozen during the build otherwise.
 - The **operator** merges the accepted release into `master` and creates the
   annotated tag at that merge commit.
 - Evaluator acceptance is evidence, never merge or deployment authority.
-- Semantic version: **`1.0.0`** (confirm or change — open question).
+- Semantic version: **`0.1.0`** (operator, 2026-10-02).
 - No deployment: `chessleak` is a local CLI. "Deployment" for this release is the
   operator running it against their own account.
 

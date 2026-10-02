@@ -388,16 +388,17 @@ the sign rule, and the black-side bug it invites is exactly the failure the PRD 
 
 ## Rulings needed
 
-1. **Q3 — severity banding.** Recommended default: classify in centipawns
-   (`ok < 50`, `inaccuracy 50–100`, `mistake 100–200`, `blunder ≥ 200`) and show
-   win-probability loss as a display figure, which is what the operator will expect to
-   read. Alternative: keep the bead's win-probability thresholds and lower `k` to
-   match. Blocks U5 (wave 2); not wave 1.
-2. **Q4 — cluster identity.** Recommended default: as revised above — the position is
-   the cluster's identity, ECO is its most frequent display label. Blocks U6.
-3. **Q5 — `--max-games`.** Recommended default: add it, default unlimited; it bounds
-   the e2e test and gives the operator a quick pass over a 153-archive account.
-4. Which real account validates v1 end to end (PRD R4). Default: the operator names
-   their own account for the uncoached walkthrough; U4 records a cassette for CI.
-   Blocking nothing before first readiness.
-5. Tag version `1.0.0` at acceptance. Default: `1.0.0`. Non-blocking.
+**All five are now ruled on by the operator (2026-10-02); see the release bead.**
+
+1. **Q3 — severity banding: RULED.** Classify in centipawns — `ok < 50`,
+   `inaccuracy 50–100`, `mistake 100–200`, `blunder ≥ 200` — and show win-probability
+   loss as a display figure. This supersedes the operator's original 2026-06-05
+   win-probability thresholds (0.07/0.15/0.30 at `k = 0.004`), which meant roughly
+   70/155/347 cp. Implemented as `chess-k1s`; `win_prob_k` stays, for display only.
+2. **Q4 — cluster identity: CONFIRMED.** The position is the cluster's identity; ECO is
+   its most frequent display label. No change.
+3. **Q5 — `--max-games`: APPROVED.** Default unlimited.
+4. **Validation account: `kijuu11`**, the operator's own, for the uncoached walkthrough
+   and the live end-to-end run. Committed cassettes stay on non-personal accounts,
+   because this repository's remote is public.
+5. **Tag version: `0.1.0`**, not `1.0.0`. `src/chessleak/__init__.py` must agree.
