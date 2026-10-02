@@ -91,6 +91,7 @@ __all__ = [
     "game_record_from_archive_json",
     "games_from_archive_json",
     "index_cache_path",
+    "is_archive_url",
     "is_month_selector",
     "list_archives",
     "month_archive_url",
@@ -665,9 +666,9 @@ def fetch_archive(
     return games_from_archive_json(payload, username)
 
 
-def _is_url(value: str) -> bool:
+def is_archive_url(value: str) -> bool:
     """Whether ``value`` is an absolute http(s) URL with a host."""
-    parsed = urlsplit(value)
+    parsed = urlsplit(value.strip())
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)
 
 
@@ -726,7 +727,7 @@ def resolve_archive(
         month is not one the account published.
     """
     value = selector.strip()
-    if _is_url(value):
+    if is_archive_url(value):
         return value
     if is_month_selector(value):
         return month_archive_url(username, value, cache_dir=cache_dir, client=client)

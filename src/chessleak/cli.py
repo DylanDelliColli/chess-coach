@@ -51,7 +51,7 @@ that.
    a reader can see that a list of habits is a deliberate subset of the run's
    findings rather than all of them.
 
-**Three decisions this module owns.**
+**Four decisions this module owns.**
 
 * **Progress and the cache hit rate are visible while the run happens.** The
   release's outcome O1 asks for both, and a depth-18 run over a full month is
@@ -97,7 +97,6 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import chess
 
@@ -110,6 +109,7 @@ from .fetch import (
     UnknownAccountError,
     UnknownArchiveError,
     download_all,
+    is_archive_url,
     is_month_selector,
 )
 from .pgnio import PlyRecord, extract_opening_plies
@@ -534,7 +534,7 @@ def _archive_selector(text: str) -> str:
     a full URL keeps costing no index request.
     """
     value = text.strip()
-    if not is_month_selector(value) and not urlsplit(value).scheme.startswith("http"):
+    if not (is_month_selector(value) or is_archive_url(value)):
         raise argparse.ArgumentTypeError(
             f"expected a monthly archive URL or a YYYY/MM month such as 2023/11, got {text!r}"
         )
