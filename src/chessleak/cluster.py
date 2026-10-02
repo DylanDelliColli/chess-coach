@@ -34,6 +34,15 @@ and one of them measured on real data:
   first makes the bonus a share of the cluster instead. The 0.05 is held as
   :data:`DEVIATION_WEIGHT` because open question **Q3** on the release bead asks
   whether the win-probability scale itself changes.
+* **A habit is a cluster that repeats, and habits are what the report is about.**
+  :func:`rank_habits` drops ``occurrences == 1`` and orders what is left by
+  occurrences descending, then by composite descending. :func:`rank_clusters`
+  stays, and stays the composite order, because the composite is still the honest
+  description of what a leak cost - the two orderings answer different questions
+  and the release wants both of them. Measured on the committed 85-game cassette
+  at the e2e test's bound: 82 clusters, of which one recurs, and under the
+  composite order that one-off-laden list put the single habit fourth. The ruling
+  is the operator's, on ``chess-r0o`` and outcome **O2** of the release brief.
 
 The ECO label is kept **raw**, exactly as the extractor produced it, including a
 chess.com opening URL (about 12% of real games carry the archive's URL rather than
@@ -44,7 +53,11 @@ job at render time. A URL is never a reason to drop a cluster.
 :func:`aggregate` returns its clusters unsorted, in first-seen order, and
 :func:`rank_clusters` is what orders them by composite descending. Splitting the
 two lets the caller choose a ranking (or none) and lets ``report.py`` re-sort
-defensively, as the design record requires of it.
+defensively, as the design record requires of it. Beside them,
+:func:`rank_habits` is the ordering the report actually shows: the operator's
+2026-10-02 ruling that a one-time blunder is not a learning opportunity, so the
+report is a list of habits - positions reached more than once - most repeated
+first.
 """
 
 from __future__ import annotations
@@ -60,12 +73,15 @@ from .pgnio import PlyRecord
 from .severity import BLUNDER, INACCURACY, MISTAKE, OK, Severity
 
 __all__ = [
+    "HABIT_MIN_OCCURRENCES",
     "Cluster",
     "DEVIATION_WEIGHT",
     "NO_BEST_MOVE",
     "ScoredMove",
     "aggregate",
+    "is_habit",
     "rank_clusters",
+    "rank_habits",
 ]
 
 log = logging.getLogger(__name__)
@@ -82,6 +98,13 @@ DEVIATION_WEIGHT = 0.05
 #: the other optional field and uses ``None``; the report renders both the same
 #: way, as an em dash.
 NO_BEST_MOVE = ""
+
+#: How many times a position must be reached to be a habit rather than a one-off.
+#: The operator's 2026-10-02 ruling (outcome O2 on the release brief): a position
+#: reached once is not a learning opportunity however bad the move was, so the
+#: report does not surface it. Named here so the report, the CLI's withheld count
+#: and the tests all read the same threshold instead of each carrying a literal.
+HABIT_MIN_OCCURRENCES = 2
 
 #: Severity order, worst last. Used to pick a cluster's ``worst_klass``. An
 #: unrecognised class counts as no worse than ``ok``: a class this release does
@@ -336,3 +359,38 @@ def rank_clusters(clusters: Iterable[Cluster]) -> list[Cluster]:
     The returned list is a new one; the caller's list is left as it was.
     """
     return sorted(clusters, key=lambda cluster: cluster.composite_score, reverse=True)
+
+
+def is_habit(cluster: Cluster) -> bool:
+    """Whether this position is one the player reached more than once.
+
+    The single definition of the filter the report applies: the operator's
+    2026-10-02 ruling that a one-time blunder is not a learning opportunity, so
+    it is not reported at all - not ranked last, not summarised, absent. The
+    count is a fact about the cluster, not about the ranking, so this is a
+    predicate on one record and both consumers (:func:`rank_habits` and any
+    caller counting what it left out) can share it.
+    """
+    return cluster.occurrences >= HABIT_MIN_OCCURRENCES
+
+
+def rank_habits(clusters: Iterable[Cluster]) -> list[Cluster]:
+    """The habits only, most repeated first and costliest second.
+
+    The release's own ranking, by the operator's 2026-10-02 ruling and outcome O2
+    of the brief: the report shows positions the player reached more than once,
+    ordered by how often they recurred and only then by what the leak cost. The
+    composite is the tiebreak rather than the key, because a player who lost the
+    same position three times for a tenth of a pawn has a bigger problem than one
+    who lost it once for a pawn - which is the claim the composite-descending
+    order made wrongly, measured at 19 of the top 20 entries on the committed
+    85-game cassette being positions reached exactly once.
+
+    The sort is stable, so two habits equal on both keys keep the caller's order
+    and a report is reproducible. The returned list is a new one.
+    """
+    return sorted(
+        (cluster for cluster in clusters if is_habit(cluster)),
+        key=lambda cluster: (cluster.occurrences, cluster.composite_score),
+        reverse=True,
+    )

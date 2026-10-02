@@ -39,7 +39,7 @@ from src.chessleak.config import (
     DEFAULT_WIN_PROB_K,
     Config,
 )
-from src.chessleak.fetch import UnknownAccountError
+from src.chessleak.fetch import UnknownAccountError, UnknownArchiveError
 
 pytestmark = pytest.mark.unit
 
@@ -380,6 +380,62 @@ def test_repeated_archive_flag_accumulates() -> None:
     )
     config, _ = cli.config_from_args(args)
     assert config.archives == ("https://x/1", "https://x/2")
+
+
+def test_a_bare_month_is_an_archive_the_operator_can_name() -> None:
+    """``--archive 2023/11`` is accepted and handed on untouched (``chess-iql``).
+
+    The defect was that a bare month reached the HTTP client as a URL and died with
+    *"Request URL is missing an 'http://' or 'https://' protocol"*. Resolution
+    belongs to ``fetch.resolve_archive``, against the account's own index; the
+    parser's job is only to keep the value out of that failure, which it does by
+    accepting the shape and leaving the value alone.
+    """
+    args = cli.build_parser().parse_args(["analyze", "bobbyfischer", "--archive", "2023/11"])
+    config, _ = cli.config_from_args(args)
+
+    assert config.archives == ("2023/11",), "the month reaches the fetcher as typed"
+
+
+def test_a_full_url_archive_is_still_accepted_unchanged() -> None:
+    """The old form keeps working, whitespace and all, and costs no index request."""
+    url = "  https://api.chess.com/pub/player/x/games/2023/11  "
+    args = cli.build_parser().parse_args(["analyze", "bobbyfischer", "--archive", url])
+    config, _ = cli.config_from_args(args)
+
+    assert config.archives == ("https://api.chess.com/pub/player/x/games/2023/11",)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["2023-11", "last-month", "2023/13", "2023/11/01", "november"],
+)
+def test_a_mistyped_archive_flag_is_a_usage_error(
+    value: str, capsys: pytest.CaptureFixture
+) -> None:
+    """A value that is neither a URL nor a month is refused before anything runs."""
+    assert cli.main(["analyze", "bobbyfischer", "--archive", value]) == 2
+    assert "2023/11" in capsys.readouterr().err, "the message says what to type"
+
+
+def test_an_archive_the_account_never_published_is_exit_two(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    """A month outside the account's index is what the operator typed, not a crash.
+
+    The same reasoning as :class:`UnknownAccountError`: the fix is at the command
+    line, so it is a usage error (exit 2) and the message names the month and the
+    account rather than raising a traceback out of the run.
+    """
+
+    def _boom(config: Config, *, out_path: Path, progress=None) -> cli.AnalysisResult:
+        raise UnknownArchiveError("2019/02", config.username, "not published")
+
+    monkeypatch.setattr(cli, "analyze", _boom)
+    assert cli.main(["analyze", "bobbyfischer", "--archive", "2019/02"]) == 2
+    err = capsys.readouterr().err
+    assert "2019/02" in err and "bobbyfischer" in err
+    assert "Traceback" not in err
 
 
 def test_environment_supplies_what_no_flag_names(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -39,7 +39,9 @@ from src.chessleak.fetch import (
     download_all,
     fetch_archive,
     index_cache_path,
+    is_month_selector,
     list_archives,
+    month_archive_url,
 )
 
 pytestmark = pytest.mark.integration
@@ -48,6 +50,8 @@ CHESSBUMPER = "chessbumper"
 CHESSBUMPER_ARCHIVE = "https://api.chess.com/pub/player/chessbumper/games/2014/08"
 BOBBYFISCHER = "bobbyfischer"
 BOBBYFISCHER_ARCHIVE = "https://api.chess.com/pub/player/bobbyfischer/games/2023/11"
+#: The same month as the operator would type it (``chess-iql``).
+BOBBYFISCHER_ARCHIVE_MONTH = "2023/11"
 
 CHESSBUMPER_CASSETTE = "chessbumper.yaml"
 BOBBYFISCHER_CASSETTE = "bobbyfischer.yaml"
@@ -170,6 +174,47 @@ def test_a_second_process_would_read_the_same_cache(tmp_path: Path) -> None:
 
     assert len(cached) == EXPECTED_GAMES[CHESSBUMPER]
     assert all(game.my_color in {"white", "black"} for game in cached)
+
+
+def test_a_bare_month_selects_the_same_real_archive_a_url_does(tmp_path: Path) -> None:
+    """``--archive 2023/11`` against the real recorded API, and no stub in between.
+
+    The defect ``chess-iql`` recorded was that a bare month reached httpx as a URL
+    and died with *"Request URL is missing an 'http://' or 'https://' protocol"*.
+    Here the month is resolved through the account's own recorded index, so the
+    archive that comes back is the one chess.com published, byte for byte, and the
+    games are the same 85 the full-URL path fetches. Two interactions are played -
+    the index and the month - against ``record_mode="none"``, so a resolution that
+    guessed a URL instead of asking the index would fail rather than reach the net.
+    """
+    assert is_month_selector(BOBBYFISCHER_ARCHIVE_MONTH), "the month the operator types"
+
+    with vcr_support.cassette(BOBBYFISCHER_CASSETTE) as cassette:
+        games = download_all(BOBBYFISCHER, tmp_path, archives=[BOBBYFISCHER_ARCHIVE_MONTH])
+        assert cassette.play_count == 2, "the index, then the month archive it named"
+
+    assert len(games) == EXPECTED_GAMES[BOBBYFISCHER], "the same 85 real games"
+    assert all(game.my_color is not None for game in games)
+
+    # Both documents landed on real disk, keyed by the URL they came from, and the
+    # archive is cached under the index's own URL: a resolution that guessed a URL
+    # would have asked for an address the cassette does not hold.
+    assert index_cache_path(tmp_path, BOBBYFISCHER).is_file()
+    assert archive_cache_path(tmp_path, BOBBYFISCHER_ARCHIVE).is_file()
+
+    # A second run needs neither document: the month resolves from the cached index
+    # and the archive comes off disk.
+    with vcr_support.cassette(BOBBYFISCHER_CASSETTE) as cassette:
+        again = download_all(BOBBYFISCHER, tmp_path, archives=[BOBBYFISCHER_ARCHIVE_MONTH])
+        assert cassette.play_count == 0, "the second run went to the network"
+    assert again == games
+
+    # And the resolution itself is the index's answer, asked for directly. A new
+    # cassette block, because vcrpy plays each recorded interaction once per block.
+    with vcr_support.cassette(BOBBYFISCHER_CASSETTE) as cassette:
+        resolved = month_archive_url(BOBBYFISCHER, BOBBYFISCHER_ARCHIVE_MONTH, cache_dir=tmp_path)
+        assert cassette.play_count == 0, "served from the index cached above"
+    assert resolved == BOBBYFISCHER_ARCHIVE
 
 
 def test_cassettes_are_present_and_non_empty() -> None:

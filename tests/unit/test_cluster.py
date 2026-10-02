@@ -26,6 +26,11 @@ wrote it and one of them measured:
   ``occurrences * (avg_winprob_drop + 0.05 * deviation_rate)``. A flat
   ``+0.05 * deviation_count`` bonus swings its effective weight about 20x with
   cluster size, which is what the review found.
+* **A habit is reached more than once, and habits rank by frequency first**
+  (``chess-iql``, the operator's 2026-10-02 ruling): ``rank_habits`` drops
+  ``occurrences == 1`` clusters and orders what is left by occurrences
+  descending, then composite descending. ``rank_clusters`` keeps the composite
+  order, because that is still the honest description of what a leak cost.
 """
 
 from __future__ import annotations
@@ -37,11 +42,14 @@ import pytest
 from src.chessleak.book import DeviationFlag
 from src.chessleak.cluster import (
     DEVIATION_WEIGHT,
+    HABIT_MIN_OCCURRENCES,
     NO_BEST_MOVE,
     Cluster,
     ScoredMove,
     aggregate,
+    is_habit,
     rank_clusters,
+    rank_habits,
 )
 from src.chessleak.config import position_key
 from src.chessleak.severity import BLUNDER, INACCURACY, MISTAKE, OK, Severity
@@ -63,8 +71,14 @@ TRANSPOSED_FEN = "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq 
 #: that need two clusters to rank.
 OTHER_FEN = "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 5 4"
 
+#: A third position (the French Defence's main line, 3.Nc3), for the habit
+#: ranking: ordering three clusters needs three positions, and the habit rule is
+#: about *which* of them comes first, so one more distinct board is required.
+FRENCH_FEN = "rnbqkb1r/ppp2ppp/4pn2/3p4/3P4/2N5/PPP1PPPP/RNBQKBR w KQkq - 0 3"
+
 assert position_key(START_FEN) == position_key(TRANSPOSED_FEN)
 assert position_key(START_FEN) != position_key(OTHER_FEN)
+assert position_key(FRENCH_FEN) not in (position_key(START_FEN), position_key(OTHER_FEN))
 
 
 def scored(
@@ -513,6 +527,83 @@ def test_rank_clusters_leaves_the_callers_list_alone() -> None:
     rank_clusters(clusters)
 
     assert clusters == before
+
+
+def test_is_habit_is_reached_more_than_once() -> None:
+    """A habit is ``occurrences >= 2``; the threshold is the operator's 2026-10-02 ruling.
+
+    ``outcome O2``: a position reached once is not a learning opportunity however
+    bad the move was, so it is not a habit and the report does not surface it.
+    """
+    once = aggregate([scored("g1", 0, OTHER_FEN)], [], {})
+    twice = aggregate([scored("g1", 0, START_FEN), scored("g2", 0, TRANSPOSED_FEN)], [], {})
+
+    assert HABIT_MIN_OCCURRENCES == 2
+    assert not is_habit(once[0]), "reached once is not a habit"
+    assert is_habit(twice[0]), "reached twice, at two move numbers, is one habit"
+
+
+def test_rank_habits_drops_one_offs_and_orders_by_frequency_then_cost() -> None:
+    """The release's ranking rule (O2): frequency first, cost as the tiebreak.
+
+    The clusters are built so that the two orders disagree - a single 0.90-drop
+    blunder is the most expensive thing the player did, and the operator's ruling
+    says it is still not what the report is for. It is the case the report unit
+    renders away, and it is why ``rank_habits`` exists beside ``rank_clusters``
+    rather than replacing it: the composite ordering is still the honest
+    description of severity, and the habit ordering is the honest description of
+    what a player should go and fix.
+    """
+    clusters = aggregate(
+        [
+            # One occurrence, the biggest drop in the run: withheld.
+            scored("g1", 0, OTHER_FEN, move_san="Bb5", klass=BLUNDER, winprob_drop=0.90),
+            # Three occurrences of a small leak: a habit, and the most repeated.
+            scored("g2", 0, FRENCH_FEN, klass=INACCURACY, winprob_drop=0.10),
+            scored("g3", 0, FRENCH_FEN, klass=INACCURACY, winprob_drop=0.10),
+            scored("g4", 0, FRENCH_FEN, klass=INACCURACY, winprob_drop=0.10),
+            # Two occurrences of a big one: a habit, and the costlier of the two.
+            scored("g5", 0, START_FEN, klass=BLUNDER, winprob_drop=0.35),
+            scored("g6", 0, TRANSPOSED_FEN, klass=BLUNDER, winprob_drop=0.35),
+        ],
+        [],
+        {},
+    )
+    assert len(clusters) == 3, "three distinct positions"
+
+    habits = rank_habits(clusters)
+
+    # Frequency first: the three-occurrence leak outranks the costlier pair even
+    # though its composite is the lower of the two, which is what the operator's
+    # ruling asks for and what a composite-descending sort would get wrong.
+    assert [c.fen_before for c in habits] == [FRENCH_FEN, START_FEN]
+    assert [c.occurrences for c in habits] == [3, 2]
+    assert habits[0].composite_score == pytest.approx(0.30)
+    assert habits[1].composite_score == pytest.approx(0.70)
+    assert rank_clusters(habits)[0] is habits[1], "the composite order is the other one"
+
+    # The composite order is the other one, and it starts with the withheld one-off.
+    assert [c.fen_before for c in rank_clusters(clusters)][0] == OTHER_FEN
+    assert OTHER_FEN not in [c.fen_before for c in habits], "the one-off is not a habit"
+
+
+def test_rank_habits_keeps_a_tie_in_the_pipeline_order() -> None:
+    """Equal frequency *and* equal cost keep the caller's order, so runs repeat."""
+    clusters = aggregate(
+        [
+            scored("g1", 0, OTHER_FEN, move_san="Bb5", klass=INACCURACY, winprob_drop=0.08),
+            scored("g2", 0, START_FEN, klass=INACCURACY, winprob_drop=0.08),
+            scored("g3", 0, START_FEN, klass=INACCURACY, winprob_drop=0.08),
+        ],
+        [],
+        {},
+    )
+    habits = rank_habits(clusters)
+
+    assert [c.fen_before for c in habits] == [START_FEN], "one habit, at occurrences 2"
+    assert [c.occurrences for c in habits] == [2]
+    assert rank_habits([]) == []
+    assert rank_habits(list(clusters)) is not clusters, "a new list, the caller's untouched"
 
 
 def test_a_cluster_is_built_from_real_types_and_a_real_counter() -> None:

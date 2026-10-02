@@ -15,7 +15,12 @@ sees, in this order:
   cost in win probability;
 * **the header is the run's provenance** - games, skipped games, positions
   evaluated, flagged mistakes, cache hit rate - the numbers ``cli.py`` computes
-  and this module only renders.
+  and this module only renders;
+* **the report is a list of habits and nothing else** (``chess-iql``, the
+  operator's 2026-10-02 ruling): a position reached once is not rendered at all,
+  the list is ordered by how often the player reached the position and only then
+  by what the leak cost, and the header states how many one-offs were withheld
+  and that the list is a lower bound.
 
 The types under test are the **real** frozen ones, the real
 :class:`~chessleak.cluster.Cluster` with a real :class:`collections.Counter` of the
@@ -48,10 +53,11 @@ from pathlib import Path
 
 import pytest
 
-from src.chessleak.cluster import NO_BEST_MOVE, Cluster, rank_clusters
+from src.chessleak.cluster import NO_BEST_MOVE, Cluster, rank_clusters, rank_habits
 from src.chessleak.report import (
     DEVIATION_MARKER,
     EM_DASH,
+    WITHHELD_FIELD,
     format_eco,
     render_board,
     render_report,
@@ -94,7 +100,8 @@ SPANISH_BOARD = """\
  1  ♖ ♘ ♗ ♕ ♔ . . ♖
     a b c d e f g h"""
 
-#: The summary ``cli.py`` computes, with the six fields the design record freezes.
+#: The summary ``cli.py`` computes, with the six fields the design record freezes
+#: plus the withheld count ``chess-iql`` added.
 SUMMARY = {
     "username": "jefferyx",
     "games_analyzed": 20,
@@ -102,6 +109,7 @@ SUMMARY = {
     "positions_evaluated": 231,
     "flagged_mistakes": 6,
     "cache_hit_rate": 0.712,
+    WITHHELD_FIELD: 12,
 }
 
 
@@ -144,6 +152,11 @@ def test_render_contains_top_clusters(tmp_path: Path) -> None:
     :func:`~chessleak.cluster.aggregate` produces them, because ``report.py`` is
     required to re-sort defensively: a caller that forgets ``rank_clusters`` must
     not get a report whose rank 1 is somebody's worst leak.
+
+    The third cluster is the operator's ``chess-iql`` case: one occurrence, and
+    the most expensive move in the set. It is handed over with everything else
+    and must not reach the page, which is why ``## 3.`` is asserted absent and
+    not merely uncounted.
     """
     worst = make_cluster(
         eco="C65",
@@ -169,15 +182,31 @@ def test_render_contains_top_clusters(tmp_path: Path) -> None:
         deviation_count=0,
         worst_klass="inaccuracy",
     )
+    one_off = make_cluster(
+        eco="B00",
+        fen_before=SPANISH_FEN,
+        composite_score=9.99,
+        occurrences=1,
+        my_moves=Counter({"Qh5": 1}),
+        best_move="Nf6",
+        avg_winprob_drop=0.99,
+        max_winprob_drop=0.99,
+        deviation_count=0,
+        worst_klass="blunder",
+    )
     # Lowest composite first, so an implementation that trusted its input would
     # put this one at rank 1 and fail the ordering assertion below.
-    clusters = [milder, worst]
+    clusters = [milder, one_off, worst]
 
     text = render(tmp_path, clusters, top_n=2)
 
-    # 1. The ranking, in composite order, numbered from one.
+    # 1. The ranking, in habit order (occurrences first), numbered from one.
     assert text.index("## 1. C65") < text.index("## 2. C42"), text
     assert "## 3." not in text, "top_n=2 renders two entries"
+
+    # 2. A one-off position is not rendered at all, however much it cost.
+    assert "B00" not in text, "a position reached once is not a habit"
+    assert "- **Seen:** 1 time" not in text, text
 
     # 2. A board diagram of the position the mistake was made in, glyph for glyph.
     assert f"```\n{SPANISH_BOARD}\n```" in text, text
@@ -208,42 +237,74 @@ def test_render_contains_top_clusters(tmp_path: Path) -> None:
 # -- the defensive re-sort ----------------------------------------------------
 
 
-def test_ranks_by_composite_not_by_input_order(tmp_path: Path) -> None:
-    """Rank 1 is the highest composite, whatever order the caller used."""
+def test_ranks_by_occurrences_before_cost(tmp_path: Path) -> None:
+    """The most-repeated leak is rank 1, even when a rarer one cost more.
+
+    This is the operator's 2026-10-02 ruling (outcome O2): the report is about
+    what the player *keeps* getting wrong, so frequency decides and the composite
+    only breaks ties. A composite-descending sort would put the rarer, costlier
+    habit first, which is the report the ruling replaced.
+    """
+    frequent = make_cluster(occurrences=5, composite_score=0.30, eco="A00", best_move="a1")
+    rarer = make_cluster(occurrences=3, composite_score=0.95, eco="B00", best_move="b1")
+    clusters = [rarer, frequent]
+
+    text = render(tmp_path, clusters, top_n=2)
+    assert text.index("## 1. A00") < text.index("## 2. B00"), text
+    assert [c.eco for c in rank_habits(clusters)] == ["A00", "B00"]
+    # The composite ranking is untouched and still says the other thing: it is
+    # the honest cost order, and the report simply asks a different question.
+    assert [c.eco for c in rank_clusters(clusters)] == ["B00", "A00"]
+
+
+def test_equal_frequency_entries_are_ordered_by_cost_not_by_input_order(tmp_path: Path) -> None:
+    """At equal frequency the composite decides, whatever order the caller used."""
     clusters = [
-        make_cluster(composite_score=1.0, eco="A00", best_move="a1"),
-        make_cluster(composite_score=9.0, eco="B00", best_move="b1"),
-        make_cluster(composite_score=5.0, eco="C00", best_move="c1"),
+        make_cluster(occurrences=4, composite_score=1.0, eco="A00", best_move="a1"),
+        make_cluster(occurrences=4, composite_score=9.0, eco="B00", best_move="b1"),
+        make_cluster(occurrences=4, composite_score=5.0, eco="C00", best_move="c1"),
     ]
     text = render(tmp_path, list(reversed(clusters)), top_n=3)
     assert text.index("## 1. B00") < text.index("## 2. C00") < text.index("## 3. A00")
 
-    # Same order as the release's own ranking, so the two cannot disagree.
-    assert [c.eco for c in rank_clusters(clusters)] == ["B00", "C00", "A00"]
-
 
 def test_ranking_keeps_a_tie_in_the_pipeline_order(tmp_path: Path) -> None:
-    """Equal scores keep the caller's order, so a report is reproducible."""
+    """Equal frequency and equal cost keep the caller's order, so runs repeat."""
     clusters = [
-        make_cluster(composite_score=2.0, eco="A00", best_move="a1"),
-        make_cluster(composite_score=2.0, eco="B00", best_move="b1"),
+        make_cluster(occurrences=3, composite_score=2.0, eco="A00", best_move="a1"),
+        make_cluster(occurrences=3, composite_score=2.0, eco="B00", best_move="b1"),
     ]
     assert "## 1. A00" in render(tmp_path, clusters, top_n=2)
 
 
 def test_top_n_truncates_and_says_how_many_were_left_out(tmp_path: Path) -> None:
-    """``top_n`` is a display cap, and the report says what it capped."""
+    """``top_n`` caps the habit list, and the report says what it capped."""
     clusters = [make_cluster(composite_score=float(i), eco=f"E{i:02d}") for i in range(7)]
     text = render(tmp_path, clusters, top_n=3)
     assert "## 1. E06" in text and "## 3. E04" in text
     assert "## 4." not in text
-    assert "top 3 of 7" in text, text
+    assert "top 3 of 7 habits" in text, text
+
+
+def test_top_n_is_not_padded_with_one_offs(tmp_path: Path) -> None:
+    """A short habit list is the honest result: the cap is never filled with one-offs.
+
+    The report must not reach past its habit list to make the page look fuller,
+    because the entries it would add are exactly the ones the operator's ruling
+    removed: a single mistake, however bad, with nothing to learn from it.
+    """
+    habits = [make_cluster(occurrences=2, composite_score=0.2, eco=f"H{i}") for i in range(2)]
+    one_offs = [make_cluster(occurrences=1, composite_score=9.0 - i, eco=f"O{i}") for i in range(5)]
+
+    text = render(tmp_path, one_offs + habits, top_n=20)
+    assert text.count("## ") == 2, "two habits, and only two, whatever the cap"
+    assert "## 1. H0" in text and "## 2. H1" in text, text
 
 
 def test_top_n_larger_than_the_list_renders_all_of_them(tmp_path: Path) -> None:
-    """A cap above the number of clusters is not a claim that entries are missing."""
+    """A cap above the number of habits is not a claim that entries are missing."""
     text = render(tmp_path, [make_cluster(composite_score=1.0)], top_n=1000)
-    assert "1 recurring position" in text, text
+    assert "1 habit" in text, text
     assert "## 1." in text
 
 
@@ -382,9 +443,8 @@ def test_a_deviation_on_every_occurrence_is_still_one_marker(tmp_path: Path) -> 
     text = render(tmp_path, [make_cluster(deviation_count=3, occurrences=3)], top_n=1)
     assert f"{DEVIATION_MARKER} flagged in 3 of 3 times" in text, text
 
-    single = render(tmp_path, [make_cluster(deviation_count=1, occurrences=1)], top_n=1)
-    assert f"{DEVIATION_MARKER} flagged in 1 of 1 time" in single, single
-    assert "1 of 1 times" not in single, "a share of one is still one time"
+    half = render(tmp_path, [make_cluster(deviation_count=1, occurrences=2)], top_n=1)
+    assert f"{DEVIATION_MARKER} flagged in 1 of 2 times" in half, half
 
 
 def test_a_position_with_no_engine_move_says_so(tmp_path: Path) -> None:
@@ -496,6 +556,92 @@ def test_a_second_render_overwrites_rather_than_appends(tmp_path: Path) -> None:
     first = out.read_text(encoding="utf-8")
     render_report([make_cluster()], 5, out, SUMMARY)
     assert out.read_text(encoding="utf-8") == first
+
+
+# -- habits only (chess-iql) -------------------------------------------------
+
+
+def test_a_one_off_position_is_never_rendered(tmp_path: Path) -> None:
+    """A position reached once is not rendered at all, however bad the move was.
+
+    The operator's 2026-10-02 ruling: a one-time blunder is not a learning
+    opportunity. The filter lives in ``rank_habits`` and ``render_report`` calls
+    it defensively, so a caller that hands over an unfiltered list - which is
+    exactly what ``aggregate`` returns - still gets a habits-only report.
+    """
+    habit = make_cluster(occurrences=2, composite_score=0.4, eco="H00", fen_before=SPANISH_FEN)
+    one_off = make_cluster(
+        occurrences=1,
+        composite_score=1.8,
+        eco="O00",
+        fen_before=START_FEN,
+        my_moves=Counter({"Qh5": 1}),
+        worst_klass="blunder",
+        avg_winprob_drop=0.9,
+        max_winprob_drop=0.9,
+    )
+
+    text = render(tmp_path, [one_off, habit], top_n=20)
+
+    assert "## 1. H00" in text, text
+    assert "O00" not in text, "a one-occurrence position is not in the report"
+    assert "Qh5" not in text, "nor is the move that caused it"
+    assert START_FEN not in text, "nor its diagram"
+
+
+def test_the_header_states_how_many_one_offs_were_withheld(tmp_path: Path) -> None:
+    """The count comes from the summary, and the sentence that carries it is fixed.
+
+    The count is a fact about the run, so ``cli.py`` owns it (``chess-iql`` added
+    the field to the design record's ``summary`` list) and this module prints it.
+    """
+    text = render(tmp_path, [make_cluster()], top_n=1, summary={**SUMMARY, WITHHELD_FIELD: 12})
+
+    assert "12 one-off positions omitted" in text, text
+    assert "reached once, so not habits" in text, text
+    assert "0 one-off positions omitted" not in text, "the summary's own figure, not a guess"
+
+
+def test_a_missing_withheld_count_renders_a_dash_and_says_so(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A summary without the field is a gap the report declares, not one it fills in."""
+    summary = {key: value for key, value in SUMMARY.items() if key != WITHHELD_FIELD}
+
+    text = render(tmp_path, [make_cluster()], top_n=1, summary=summary)
+
+    assert f"{EM_DASH} one-off positions omitted" in text, text
+    assert WITHHELD_FIELD in caplog.text, caplog.text
+
+
+def test_the_header_says_the_habit_list_is_a_lower_bound(tmp_path: Path) -> None:
+    """The standing sentence: only exact positions count as the same position.
+
+    It is printed whether or not anything was withheld, because it is a property
+    of the counting rather than of this run: two positions that are the same by
+    transposition or by mirror image are two keys today, so a habit that has
+    really happened three times can read as one. Positional similarity (deferred
+    on ``chess-sco``) would only ever *raise* these counts, which is why the
+    sentence must not be dropped while that bead is open.
+    """
+    for clusters, withheld in (([make_cluster()], 12), ([], 0)):
+        text = render(tmp_path, clusters, top_n=20, summary={**SUMMARY, WITHHELD_FIELD: withheld})
+        assert "lower bound" in text, text
+        assert "only exact positions count as the same position" in text, text
+
+
+def test_a_run_whose_positions_are_all_one_offs_says_so(tmp_path: Path) -> None:
+    """No habits is a finding, and the withheld count is what explains the empty page."""
+    one_offs = [
+        make_cluster(occurrences=1, composite_score=1.0 + i, eco=f"O{i:02d}") for i in range(4)
+    ]
+
+    text = render(tmp_path, one_offs, top_n=20, summary={**SUMMARY, WITHHELD_FIELD: 4})
+
+    assert "No recurring habits" in text, text
+    assert "4 one-off positions omitted" in text, text
+    assert "## 1." not in text, "there is nothing to rank"
+    assert "O00" not in text and "O03" not in text, text
 
 
 def test_a_run_with_no_recurring_mistakes_says_so(tmp_path: Path) -> None:
