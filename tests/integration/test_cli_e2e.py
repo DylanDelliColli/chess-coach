@@ -33,16 +33,35 @@ call beneath it, runnable against real recorded input.
 
 **What the numbers mean, and what they do not.** Assertions here are about
 *relationships* the report's own figures express (``avg_winprob_drop > 0``,
-``deviation_count > 0``, ``occurrences >= 1``, a cache hit rate that rises), never
+``deviation_count > 0``, ``occurrences >= 2``, a cache hit rate that rises), never
 about absolute centipawn or win-probability values: a magic constant pinned to one
 engine build is the thing that breaks next week. The engine is deterministic per
 the ``chess-jc5`` repair (``ucinewgame`` per position, ``Threads=1``), so these
 relationships are stable across runs on this host, but they are the *shape* of the
 finding, not its magnitude.
+
+**Habits only (``chess-iql``, the operator's 2026-10-02 ruling).** The report this
+file replays is a list of positions the player reached more than once, ordered by
+how often, with a count of the one-offs that were withheld and a standing
+lower-bound sentence in the header. Measured on this cassette and this bound, 30
+games yield 82 clusters of which a single one recurs, so the *ordering* with more
+than one habit is proved in ``tests/unit/test_report.py``; what this file proves
+is that the filter holds on a real run: every one-occurrence position is absent
+from the file, asserted as absence rather than as a count.
+
+**The bare month ``--archive 2023/11``.** The run below names the month as a full
+URL, so it never consults the account's archives index - which is why this module
+asserts the index cache is *absent*. The natural thing to type is the month on its
+own, and ``chess-iql`` made that work: the second fixture runs ``main`` again with
+``--archive 2023/11`` over the same warm cache, and the only HTTP it makes is the
+one index request that resolving the month needs. The full-URL run above is
+unchanged by that, which is what the two runs together show.
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
 import re
 from pathlib import Path
 
@@ -51,13 +70,18 @@ from tests.support.vcr import CASSETTE_DIR, cassette
 
 from src.chessleak import cli
 from src.chessleak.config import EVAL_CACHE_FILENAME, Config
-from src.chessleak.report import SUMMARY_FIELDS
+from src.chessleak.fetch import CACHE_SUBDIR_INDEX, archives_url
+from src.chessleak.report import SUMMARY_FIELDS, WITHHELD_FIELD
 
 pytestmark = pytest.mark.integration
 
 #: The account and the one month ``chess-3if`` recorded, published on that bead.
 ACCOUNT = "bobbyfischer"
 ARCHIVE_URL = "https://api.chess.com/pub/player/bobbyfischer/games/2023/11"
+#: The same month as the operator would type it, which is what ``chess-iql`` made
+#: work: resolved against the account's archives index rather than pasted as a URL.
+ARCHIVE_MONTH = "2023/11"
+INDEX_URL = archives_url(ACCOUNT)
 CASSETTE = "bobbyfischer.yaml"
 
 #: The bounded run the chief measured on this host: 30 games at depth 12 sits well
@@ -79,6 +103,31 @@ def engine_path() -> str:
     return path
 
 
+def analyze_argv(cache_dir: Path, report: Path, engine_path: str, archive: str) -> list[str]:
+    """The command line both real runs in this file use, spelled once.
+
+    The two runs must differ in exactly one thing - how the month is named - so
+    the argument list is built here and passed to ``cli.main`` by both, rather
+    than copied into each fixture where they could drift.
+    """
+    return [
+        "analyze",
+        ACCOUNT,
+        "--archive",
+        archive,
+        "--max-games",
+        str(MAX_GAMES),
+        "--depth",
+        str(DEPTH),
+        "--cache-dir",
+        str(cache_dir),
+        "--stockfish-path",
+        engine_path,
+        "--out",
+        str(report),
+    ]
+
+
 @pytest.fixture(scope="module")
 def run(tmp_path_factory: pytest.TempPathFactory, engine_path: str) -> dict:
     """One real end-to-end run of ``chessleak analyze``, kept for the file's tests.
@@ -96,24 +145,7 @@ def run(tmp_path_factory: pytest.TempPathFactory, engine_path: str) -> dict:
     report = work / "report.md"
 
     with cassette(CASSETTE) as loaded:
-        code = cli.main(
-            [
-                "analyze",
-                ACCOUNT,
-                "--archive",
-                ARCHIVE_URL,
-                "--max-games",
-                str(MAX_GAMES),
-                "--depth",
-                str(DEPTH),
-                "--cache-dir",
-                str(cache_dir),
-                "--stockfish-path",
-                engine_path,
-                "--out",
-                str(report),
-            ]
-        )
+        code = cli.main(analyze_argv(cache_dir, report, engine_path, ARCHIVE_URL))
 
     assert code == 0, "a real run over real games succeeds"
     text = report.read_text(encoding="utf-8")
@@ -123,12 +155,113 @@ def run(tmp_path_factory: pytest.TempPathFactory, engine_path: str) -> dict:
         "text": text,
         "cache_dir": cache_dir,
         "played": loaded.play_count,
+        # Whether the run above cached an archives index, recorded while the run
+        # above was the only thing that had touched this cache directory. The
+        # ``month_run`` fixture shares the directory and does write an index, so
+        # asking the filesystem later would measure the wrong run.
+        "index_cached": (cache_dir / CACHE_SUBDIR_INDEX).exists(),
         # vcrpy 8 exposes no write_count; the write-protect flag is the stronger
         # statement anyway - with record_mode="none" the cassette is sealed, so a
         # run that tried to record into it would have raised rather than quietly
         # rewritten the committed fixture.
         "sealed": loaded.write_protected,
     }
+
+
+@pytest.fixture(scope="module")
+def analysis(run: dict, engine_path: str, tmp_path_factory: pytest.TempPathFactory) -> dict:
+    """The same real run again, over the now-warm cache, for the run's own numbers.
+
+    ``cli.main`` returns an exit code, so the pipeline's own :class:`AnalysisResult`
+    is not observable through it. Running the library call the command wraps -
+    with the config the command line above parses, no stubs anywhere - is what
+    lets the habits test compare the report on disk against the clusters the run
+    actually produced, rather than against a count it made up. It costs no network
+    and no searches: the archive and every evaluation are on disk already.
+    """
+    report = tmp_path_factory.mktemp("cli-e2e-analysis") / "report.md"
+    argv = analyze_argv(run["cache_dir"], report, engine_path, ARCHIVE_URL)
+    config, out_path = cli.config_from_args(cli.build_parser().parse_args(argv))
+
+    with cassette(CASSETTE) as loaded:
+        result = cli.analyze(config, out_path=out_path, progress=lambda _message: None)
+
+    return {"result": result, "played": loaded.play_count, "report": report}
+
+
+# -- the bare month run (chess-iql) -------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def month_run(run: dict, tmp_path_factory: pytest.TempPathFactory, engine_path: str) -> dict:
+    """The same real run, with the month named the way an operator would type it.
+
+    Over the ``run`` fixture's warm cache, so the archive is served from disk and
+    every position is answered from the evaluation cache: the only request this
+    makes is the archives index that resolving ``2023/11`` needs, and the only
+    thing it proves beyond that request is the report. Both streams are captured
+    here rather than per test, because the output is a fact about the run rather
+    than about a test.
+    """
+    report = tmp_path_factory.mktemp("cli-e2e-month") / "report.md"
+    out, err = io.StringIO(), io.StringIO()
+    with (
+        cassette(CASSETTE) as loaded,
+        contextlib.redirect_stdout(out),
+        contextlib.redirect_stderr(err),
+    ):
+        code = cli.main(analyze_argv(run["cache_dir"], report, engine_path, ARCHIVE_MONTH))
+
+    return {
+        "code": code,
+        "report": report,
+        "text": report.read_text(encoding="utf-8"),
+        "cache_dir": run["cache_dir"],
+        "played": loaded.play_count,
+        "out": out.getvalue(),
+        "err": err.getvalue(),
+    }
+
+
+def test_a_bare_month_archive_runs_against_the_real_cassette(month_run: dict) -> None:
+    """``--archive 2023/11`` is the natural thing to type, and it now works.
+
+    The defect ``chess-iql`` recorded: a bare month reached ``httpx`` as a URL
+    and died with *"Request URL is missing an 'http://' or 'https://' protocol"*.
+    The month is resolved against the account's own archives index - one recorded
+    request, and the only one this run makes, because the month archive and every
+    evaluation are already on disk from the run above.
+    """
+    assert month_run["code"] == 0, month_run["err"]
+    assert month_run["played"] == 1, (
+        "exactly one request: the archives index that the month was resolved "
+        f"against, got play_count={month_run['played']}"
+    )
+    assert month_run["report"].is_file(), "the run wrote a report"
+    assert month_run["text"].startswith(f"# chessleak report — {ACCOUNT}")
+    # The index is now a real file on disk, keyed by the account, and it is what
+    # the month was resolved against. Its presence is also the difference between
+    # this run and the one above, which must not consult the index at all.
+    index_files = list((Path(month_run["cache_dir"]) / CACHE_SUBDIR_INDEX).glob("*.json"))
+    assert len(index_files) == 1, index_files
+    index_text = index_files[0].read_text(encoding="utf-8")
+    assert ARCHIVE_URL in index_text, "the cached index is the account's own"
+    assert ARCHIVE_MONTH in index_text, "and it names the month the run asked for"
+
+
+def test_the_run_prints_the_report_path_exactly_once(month_run: dict) -> None:
+    """One line, on stdout: the path a script can rely on, said once.
+
+    ``chess-iql``'s second defect: the path was printed twice, once by the run's
+    own progress sink (stderr) and once by ``main`` (stdout). The stdout one is
+    the one kept - it is the only thing on stdout, by ``cli.py``'s own contract -
+    so a caller capturing stdout for the path still works and a reader at a
+    terminal no longer sees the same sentence twice.
+    """
+    lines = [line for line in (month_run["out"] + month_run["err"]).splitlines() if "wrote" in line]
+    assert len(lines) == 1, f"the report path is announced once, got {lines}"
+    assert str(month_run["report"]) in month_run["out"], "on stdout, where a script reads it"
+    assert "wrote" not in month_run["err"], month_run["err"][-500:]
 
 
 # -- reading the report back --------------------------------------------------
@@ -216,12 +349,15 @@ def test_end_to_end_small_sample(run: dict) -> None:
         f"path this assertion exists to catch.\n{text}"
     )
 
-    # 5. A cluster is *recurring*: the ranking is about habits, not one-off blunders.
+    # 5. A cluster is a *habit*: the report ranks only positions reached more than
+    #    once, and every entry says how often it was seen.
     recurrences = [
         int(re.search(r"(\d+) times", b).group(1)) for b in bodies if re.search(r"(\d+) times", b)
     ]
     assert recurrences, "every ranked entry reports how often it was seen"
-    assert max(recurrences) >= 1
+    assert min(recurrences) >= 2, (
+        f"a habits-only report has no entry below two occurrences: {sorted(recurrences)}"
+    )
 
     # 6. The winning entry carries a real position, a real ECO label and the
     #    player's own move against the engine's - the four things a reader acts on.
@@ -232,6 +368,73 @@ def test_end_to_end_small_sample(run: dict) -> None:
     assert len(fen_match.group(1).split()) >= 4, "the FEN is a whole position"
     assert re.search(r"^## \d+\. \S", text, flags=re.M), "every entry has an opening label"
     assert "`" in value_of(top, "Your move"), "the player's move is named in SAN"
+
+
+# -- habits only (chess-iql) -------------------------------------------------
+
+
+def test_the_report_holds_habits_and_says_what_it_withheld(run: dict, analysis: dict) -> None:
+    """The operator's 2026-10-02 ruling, on the committed 85-game cassette.
+
+    Three things, and the third is the one a weaker test would leave out:
+
+    * **the entries are habits** - every one of them was reached at least twice;
+    * **the order is by occurrences first** - a real run, whatever its
+      cardinality, cannot be ranked by cost alone and still be a habit list;
+    * **the one-offs are absent, not merely unmentioned** - the header states how
+      many were withheld and why, and no entry with ``Seen: 1 time`` exists.
+
+    The withheld count is checked against the run's own clusters rather than
+    against a literal, so the number in the header is this run's: it is the
+    difference between every position the engine flagged and the ones that recurred.
+    """
+    text = run["text"]
+    bodies = entries(text)
+    assert bodies, "this run has at least one habit to report"
+
+    # 1. Habits only, asserted as absence: a one-occurrence entry would be a
+    #    separate ranked block, and there is none.
+    assert not re.search(r"\*\*Seen:\*\* 1 time\b", text), (
+        f"a position reached once is not a habit and must not be rendered:\n{text}"
+    )
+    seen = [int(re.search(r"(\d+) times", body).group(1)) for body in bodies]
+    assert seen == sorted(seen, reverse=True), (
+        f"habits are ordered by how often they recur, got {seen}"
+    )
+
+    # 2. The header says what it withheld, and that the list is a lower bound.
+    header = summary_of(text)
+    withheld = int(header[WITHHELD_FIELD])
+    assert withheld > 0, (
+        "this 30-game run reaches many positions exactly once, so the header "
+        f"must withhold some: {withheld}"
+    )
+    assert f"{withheld} one-off positions omitted" in text, text
+    assert "reached once, so not habits" in text, text
+    assert "lower bound" in text and "only exact positions count" in text, (
+        "the standing lower-bound sentence, which holds while positional "
+        f"similarity is deferred on chess-sco:\n{text}"
+    )
+
+    # 3. The count is this run's: the pipeline's own clusters, from a real second
+    #    pass over the same warm cache, must agree with what the file says - the
+    #    habits in it, in the run's order, and the one-offs it withheld.
+    result = analysis["result"]
+    assert analysis["played"] == 0, "the cross-check run read everything from disk"
+    habits = list(result.clusters)
+    assert habits, "the run produced at least one habit"
+    assert all(cluster.occurrences >= 2 for cluster in habits)
+    assert [re.search(r"FEN `([^`]+)`", body).group(1) for body in bodies] == [
+        cluster.fen_before for cluster in habits
+    ], "the file's entries are the run's habits, in the run's habit order"
+    assert result.summary[WITHHELD_FIELD] > 0, "the run had one-offs to withhold"
+    assert withheld == result.summary[WITHHELD_FIELD], (
+        "the header's withheld count is the run's own, and it is the same figure "
+        "the pipeline computed over the same data"
+    )
+    assert sum(cluster.occurrences for cluster in habits) <= int(header["flagged_mistakes"]), (
+        "the flagged moves in the body are a subset of the run's flagged moves"
+    )
 
 
 def test_a_second_run_uses_the_cache_and_makes_no_request(
@@ -318,12 +521,12 @@ def test_the_cache_directory_holds_real_archive_and_eval_files(run: dict) -> Non
     assert '"games"' in archives[0].read_text(encoding="utf-8"), (
         "the cached archive is the raw monthly document"
     )
-    # No archives_index directory: this run named the month with --archive, so it
-    # never asked for the account's index and never cached one. Asserted as absent
-    # rather than skipped, because a run that did enumerate the index would write
-    # it here and this test would be measuring a different pipeline.
-    assert not (cache_dir / "archives_index").exists(), (
-        "a --archive run does not consult or cache the account's archives index"
+    # No archives index: this run named the month with a full --archive URL, so it
+    # never asked for the account's index and never cached one. Asserted from what
+    # the run recorded rather than from the directory, because the bare-month run
+    # below shares this cache directory and does resolve a month through the index.
+    assert not run["index_cached"], (
+        "a --archive run naming a full URL does not consult or cache the account's archives index"
     )
     assert evals.is_file(), f"the evaluation cache {evals} is a real sqlite file on disk"
     assert evals.stat().st_size > 0, "the evaluation cache holds rows"

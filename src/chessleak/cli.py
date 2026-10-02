@@ -41,10 +41,17 @@ that.
    that game's window. It walks the window in one pass, so by the time it runs the
    cache already holds every position it asks about.
 7. :func:`~src.chessleak.cluster.aggregate` groups the admitted moves into one
-   cluster per position, :func:`~src.chessleak.cluster.rank_clusters` orders them,
-   and :func:`~src.chessleak.report.render_report` writes them out.
+   cluster per position, :func:`~src.chessleak.cluster.rank_habits` keeps the
+   habits and orders them - occurrences descending, then composite descending -
+   and :func:`~src.chessleak.report.render_report` writes them out. A position
+   reached once is **not** reported: the operator's 2026-10-02 ruling, "for now,
+   focus only on habits", because a one-time blunder is not a learning
+   opportunity however bad it was. The clusters that were withheld are counted
+   into ``summary.one_off_positions_omitted``, which the report header prints, so
+   a reader can see that a list of habits is a deliberate subset of the run's
+   findings rather than all of them.
 
-**Three decisions this module owns.**
+**Four decisions this module owns.**
 
 * **Progress and the cache hit rate are visible while the run happens.** The
   release's outcome O1 asks for both, and a depth-18 run over a full month is
@@ -53,10 +60,16 @@ that.
   piping and a caller capturing stdout for the report path are unaffected, and a
   caller that wants the lines somewhere else passes its own callable.
 * **Exit codes are the design record's: 0 success, 1 runtime failure, 2 usage
-  error.** :class:`~src.chessleak.fetch.UnknownAccountError` is the one fetch
-  failure that is a *usage* error - chess.com's 404 on the archives index means the
-  account name is wrong or the history is private, which is something the operator
-  typed, not something that went wrong mid-run.
+  error.** :class:`~src.chessleak.fetch.UnknownAccountError` and
+  :class:`~src.chessleak.fetch.UnknownArchiveError` are the two fetch failures
+  that are *usage* errors - chess.com's 404 on the archives index means the
+  account name is wrong or the history is private, and an archive the account
+  never published means the ``--archive`` value was - which is something the
+  operator typed, not something that went wrong mid-run.
+* **The report path is announced once, on stdout.** Progress goes to stderr, so
+  stdout carries the report path and nothing else; a caller capturing stdout gets
+  the path, and a caller reading the terminal does not see the same sentence
+  twice. ``chess-iql`` fixed the duplication this replaces.
 * **The engine never outlives the run.** One ``with`` block owns it, so a failure
   anywhere in the loop still quits the process - a Stockfish left running holds its
   threads for the rest of the session, and two sessions on ``chess-jc5`` died of
@@ -88,12 +101,19 @@ from pathlib import Path
 import chess
 
 from .book import first_deviation
-from .cluster import BLUNDER, MISTAKE, Cluster, ScoredMove, aggregate, rank_clusters
+from .cluster import BLUNDER, MISTAKE, Cluster, ScoredMove, aggregate, rank_habits
 from .config import Config, position_key
 from .engine import EngineService
-from .fetch import GameRecord, UnknownAccountError, download_all
+from .fetch import (
+    GameRecord,
+    UnknownAccountError,
+    UnknownArchiveError,
+    download_all,
+    is_archive_url,
+    is_month_selector,
+)
 from .pgnio import PlyRecord, extract_opening_plies
-from .report import render_report
+from .report import WITHHELD_FIELD, render_report
 from .severity import move_severity
 
 __all__ = [
@@ -156,8 +176,10 @@ class AnalysisResult:
 
     Returned rather than printed so a caller - a test, or a future second
     surface - can read the run without parsing the report back off the disk. The
-    clusters are the ones ``report.render_report`` was handed, in rank order, so
-    the returned data and the written file cannot disagree.
+    clusters are the **habits** ``report.render_report`` was handed, in rank order,
+    so the returned data and the written file cannot disagree; the positions the
+    run reached only once are not in them, and their count is in
+    ``summary[WITHHELD_FIELD]``.
     """
 
     clusters: tuple[Cluster, ...]
@@ -308,6 +330,9 @@ def analyze(
     :raises UsageError: the username is empty, or ``config.top_n`` is negative.
     :raises src.chessleak.fetch.UnknownAccountError: chess.com has no public
         history for that account name.
+    :raises src.chessleak.fetch.UnknownArchiveError: a ``--archive`` value is
+        neither a URL nor a ``YYYY/MM`` month, or names a month the account has
+        not published.
     """
     username = (config.username or "").strip()
     if not username:
@@ -389,9 +414,14 @@ def analyze(
         f"{hits} cache hits / {misses} searches"
     )
 
-    # 5. Aggregate, rank, render.
-    clusters = rank_clusters(aggregate(scored, deviations, best_moves))
+    # 5. Aggregate, keep the habits, render. ``flagged_mistakes`` still counts
+    #    every admitted move the engine and the book trigger flagged, one-offs
+    #    included: it is a figure about the run's work, and the habits in the body
+    #    are a subset of it. The withheld count is what tells the reader so.
+    all_clusters = aggregate(scored, deviations, best_moves)
+    clusters = rank_habits(all_clusters)
     tally.flagged = _flagged_mistakes(scored, deviations)
+    withheld = len(all_clusters) - len(clusters)
 
     summary: dict[str, object] = {
         "username": username,
@@ -400,11 +430,14 @@ def analyze(
         "positions_evaluated": len(tally.positions),
         "flagged_mistakes": tally.flagged,
         "cache_hit_rate": hits / (hits + misses) if (hits + misses) else 0.0,
+        WITHHELD_FIELD: withheld,
     }
 
     written = render_report(clusters, config.top_n, report_path, summary)
-    say(f"{len(clusters)} recurring positions, {tally.flagged} flagged mistakes")
-    say(f"wrote {written}")
+    say(
+        f"{len(clusters)} recurring habits, {withheld} one-off positions omitted, "
+        f"{tally.flagged} flagged mistakes"
+    )
 
     return AnalysisResult(
         clusters=tuple(clusters),
@@ -485,6 +518,26 @@ def _non_negative_int(text: str) -> int:
         raise argparse.ArgumentTypeError(f"expected a whole number, got {text!r}") from None
     if value < 0:
         raise argparse.ArgumentTypeError(f"expected zero or more, got {value}")
+    return value
+
+
+def _archive_selector(text: str) -> str:
+    """A ``--archive`` value: a monthly archive URL, or the month on its own.
+
+    Both forms are what the operator means, and both reach the same document:
+    ``fetch.resolve_archive`` turns a bare ``YYYY/MM`` into the URL the account's
+    own archives index publishes. Rejecting a mistyped month *here* rather than at
+    the first search is the difference between "that is not a month" in one line
+    and a run that has already downloaded an account's history before it says so.
+
+    The value is handed over untouched: this is a shape check, not a rewrite, so
+    a full URL keeps costing no index request.
+    """
+    value = text.strip()
+    if not (is_month_selector(value) or is_archive_url(value)):
+        raise argparse.ArgumentTypeError(
+            f"expected a monthly archive URL or a YYYY/MM month such as 2023/11, got {text!r}"
+        )
     return value
 
 
@@ -579,11 +632,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--archive",
         dest="archives",
         action="append",
+        type=_archive_selector,
         default=None,
-        metavar="URL",
+        metavar="URL|MONTH",
         help=(
-            "read only this monthly archive URL; repeatable. Default: every month the "
-            "account has published."
+            "read only this monthly archive, as its full URL or as a bare YYYY/MM "
+            "month (2023/11); repeatable. Default: every month the account has "
+            "published."
         ),
     )
     return parser
@@ -690,6 +745,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"{config.username!r}: {error}",
             file=sys.stderr,
         )
+        return EXIT_USAGE
+    except UnknownArchiveError as error:
+        # The operator named a month the account has not published, or something
+        # that is not an archive at all: the fix is at the command line.
+        print(f"{PROGRESS_PREFIX} {error}", file=sys.stderr)
         return EXIT_USAGE
     except KeyboardInterrupt:
         print(f"{PROGRESS_PREFIX} interrupted", file=sys.stderr)

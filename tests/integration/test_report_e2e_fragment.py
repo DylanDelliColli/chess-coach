@@ -3,9 +3,9 @@
 This is the composition the unit exists for and the one the design record names as
 a required seam test: real PGN out of the real extractor, scored by a **real
 ``EngineService``** over UCI with the real sqlite cache, aggregated by the real
-``cluster.aggregate``, ranked by the real ``rank_clusters``, and written by the real
-``render_report`` to a real file. There is no stub and no mock anywhere in the
-assertion path - the ECO label, the FEN, the SAN moves, the win-probability
+``cluster.aggregate``, ranked by the real ``cluster.rank_habits``, and written by
+the real ``render_report`` to a real file. There is no stub and no mock anywhere in
+the assertion path - the ECO label, the FEN, the SAN moves, the win-probability
 figures and the best move in the finished report are the engine's and the fixture's
 own.
 
@@ -27,6 +27,18 @@ own.
   thing on the same fixture and recorded why twenty games alone is not enough (see
   that file's docstring); a four-game prefix is smaller still, so the two lines are
   not decoration.
+
+**What the report shows, and what it withholds.** The operator's 2026-10-02 ruling
+(``chess-iql``) makes this a report of habits: a position reached once is not
+rendered at all, and the list is ordered by how often the position recurs and
+only then by what the leak cost. The corpus here is small enough that exactly one
+habit survives the filter - the transposition blunder, which is the very
+thing the two extra lines were added to produce - so the ordering with more than
+one entry is proved in ``tests/unit/test_report.py`` against real ``Cluster``
+objects, and this file's job is to prove that a real engine's real clusters go
+through the real filter: every position the corpus reaches once is absent from
+the file, and the header says how many were withheld and that the list is a
+lower bound.
 
 ``Threads=1`` and the release's real-journey depth, for the reason every real
 engine test here gives: Stockfish's search is only reproducible when it is told to
@@ -52,11 +64,16 @@ import pytest
 from tests.game_records import make_record
 
 from src.chessleak.book import first_deviation
-from src.chessleak.cluster import ScoredMove, aggregate, rank_clusters
+from src.chessleak.cluster import ScoredMove, aggregate, rank_clusters, rank_habits
 from src.chessleak.config import Config
 from src.chessleak.engine import EngineService
 from src.chessleak.pgnio import extract_opening_plies
-from src.chessleak.report import DEVIATION_MARKER, format_eco, render_report
+from src.chessleak.report import (
+    DEVIATION_MARKER,
+    WITHHELD_FIELD,
+    format_eco,
+    render_report,
+)
 from src.chessleak.severity import move_severity
 
 pytestmark = pytest.mark.integration
@@ -93,7 +110,8 @@ GLYPHS = {
 
 #: The summary ``cli.py`` will compute. Written out here in full, because the point
 #: of the seam is that ``render_report`` renders what it is handed and computes
-#: nothing: these are the six fields the design record freezes.
+#: nothing: these are the fields the design record freezes, including the withheld
+#: count ``chess-iql`` added.
 SUMMARY = {
     "username": ACCOUNT,
     "games_analyzed": REAL_GAMES + 2,
@@ -101,6 +119,7 @@ SUMMARY = {
     "positions_evaluated": 0,  # filled in from the run's own cache counters below
     "flagged_mistakes": 0,
     "cache_hit_rate": 0.0,
+    WITHHELD_FIELD: 0,  # filled in from the run's own clusters below
 }
 
 
@@ -249,11 +268,15 @@ def real_run(engine_path: str, tmp_path_factory: pytest.TempPathFactory) -> Real
         clusters = rank_clusters(aggregate(scored, deviations, best_moves))
         hits, misses = engine.hits, engine.misses
 
+    # The habit list the report is about, and the one-offs it withholds: both are
+    # derived here, in the test, so the numbers the header prints are this run's.
+    habits = rank_habits(clusters)
     summary = {
         **SUMMARY,
         "positions_evaluated": misses,
         "flagged_mistakes": sum(c.occurrences for c in clusters),
         "cache_hit_rate": hits / (hits + misses) if (hits + misses) else 0.0,
+        WITHHELD_FIELD: len(clusters) - len(habits),
     }
     return RealRun(clusters, summary, hits, misses)
 
@@ -331,7 +354,8 @@ def test_report_from_real_clusters(real_run: RealRun, tmp_path: Path) -> None:
     the real archive and a real board diagram, and every figure in it is the
     cluster's own. What a four-game prefix cannot show on its own - a position
     reached more than once - the two transposition lines supply, so the ranking this
-    file renders is a ranking of *recurring* leaks and not of one-offs.
+    file renders is a ranking of *habits*, and the positions reached once are
+    asserted absent from the file (step 9).
     """
     clusters, summary = real_run.clusters, real_run.summary
     assert clusters, "a real run over real games produces real clusters"
@@ -344,25 +368,35 @@ def test_report_from_real_clusters(real_run: RealRun, tmp_path: Path) -> None:
     assert out.is_file() and out.stat().st_size > 0
     assert text.startswith(f"# chessleak report — {ACCOUNT}")
 
-    # 2. A real ECO code, out of the real archive, as the rank-1 opening name.
-    real_ecos = {game.eco for game in fixture_games() if game.eco}
-    assert real_ecos, "the real archive games carry ECO tags"
-    labels = [heading_of(text, rank) for rank in range(1, len(clusters) + 1)]
-    assert any(label in real_ecos for label in labels), (
-        f"no real ECO code among the headings: {labels}"
+    # 2. Every entry is labelled with its own cluster's ECO, rendered readably.
+    #    The real archive's codes are in the run's *data* (see the withheld
+    #    clusters below) but not necessarily on the page: the only habit this
+    #    corpus produces is the transposition position, so a real archive label
+    #    would have to belong to a position that was reached once, and the
+    #    operator's ruling keeps those off the page. Asserting one here would
+    #    assert the filter is broken.
+    habits = rank_habits(clusters)
+    labels = [heading_of(text, rank) for rank in range(1, len(habits) + 1)]
+    assert labels == [format_eco(cluster.eco) for cluster in habits], (
+        f"each entry carries its own cluster's label: {labels}"
     )
     assert any(re.fullmatch(r"[A-E]\d\d", label) for label in labels), labels
+    real_ecos = {game.eco for game in fixture_games() if game.eco}
+    assert real_ecos, "the real archive games carry ECO tags"
+    assert {cluster.eco for cluster in clusters} & real_ecos, (
+        "the run's clusters still carry the real archive's own ECO codes"
+    )
 
     # 3. A real board diagram, square for square, of the position rank 1 is about.
-    top = clusters[0]
+    top = habits[0]
     assert cells_of(board_block(text, 1)) == expected_cells(top.fen_before), (
         f"the diagram does not draw {top.fen_before}"
     )
     # ...and the FEN printed beside it is the one the engine was asked about.
     assert top.fen_before in entries(text)[0]
 
-    # 4. The move, the alternative and the cost, for every entry, from the cluster.
-    for rank, cluster in enumerate(clusters, start=1):
+    # 4. The move, the alternative and the cost, for every habit, from the cluster.
+    for rank, cluster in enumerate(habits, start=1):
         body = entries(text)[rank - 1]
         for move, count in cluster.my_moves.items():
             assert f"`{move}` ×{count}" in body, (move, count, body)
@@ -390,15 +424,44 @@ def test_report_from_real_clusters(real_run: RealRun, tmp_path: Path) -> None:
     recurring_body = next(e for e in entries(text) if blunder.fen_before in e)
     assert DEVIATION_MARKER in recurring_body, recurring_body
 
-    # 7. Ranks are in composite order in the file, not just in the list.
+    # 7. Ranks are in habit order in the file: occurrences descending, and the
+    #    composite descending within one frequency. A relationship rather than a
+    #    strict order, because this corpus yields one habit; the multi-entry
+    #    ordering is pinned in tests/unit/test_report.py against the same type.
+    seen = [int(m) for m in re.findall(r"\*\*Seen:\*\* (\d+) times?", text)]
     scores = [float(m) for m in re.findall(r"\*\*Composite score:\*\* (\d+\.\d\d)", text)]
-    assert scores == sorted(scores, reverse=True), scores
-    assert len(scores) == len(clusters)
+    habits = rank_habits(clusters)
+    assert seen == [c.occurrences for c in habits], "the file's ranks are the habit order"
+    assert scores == [round(c.composite_score, 2) for c in habits]
+    for earlier, later in zip(habits, habits[1:], strict=False):
+        assert earlier.occurrences > later.occurrences or (
+            earlier.occurrences == later.occurrences
+            and earlier.composite_score >= later.composite_score
+        )
 
     # 8. The header carries this run's own numbers.
     assert f"- **Games analyzed:** {summary['games_analyzed']}" in text
     assert f"- **Positions evaluated:** {summary['positions_evaluated']}" in text
     assert f"- **Eval cache hit rate:** {summary['cache_hit_rate'] * 100:.1f}%" in text
+    assert real_run.hits > 0, "the cache was reused across games, as the pipeline intends"
+
+    # 9. Habits only: every position this corpus reached once is absent from the
+    #    file, and the header says how many were withheld and why the list is a
+    #    lower bound. Asserted as absence, not as a count: a report that rendered
+    #    one-offs would still show the habit.
+    one_offs = [c for c in clusters if c.occurrences < 2]
+    assert one_offs, "this corpus reaches several positions exactly once"
+    for cluster in one_offs:
+        assert cluster.fen_before not in text, cluster.fen_before
+    assert not re.search(r"\*\*Seen:\*\* 1 time", text), "a one-off entry reached the file"
+    assert f"{summary[WITHHELD_FIELD]} one-off positions omitted" in text, text
+    assert "reached once, so not habits" in text, text
+    assert "lower bound" in text and "only exact positions count" in text, text
+
+    # 8. The header carries this run's own numbers.
+    assert f"- **Games analyzed:** {summary['games_analyzed']}" in text
+    assert f"- **Positions evaluated:** {summary['positions_evaluated']}" in text
+    assert f"{summary['cache_hit_rate'] * 100:.1f}%" in text
     assert real_run.hits > 0, "the cache was reused across games, as the pipeline intends"
 
 
@@ -412,6 +475,11 @@ def test_a_real_chess_com_url_label_is_shortened_at_render_time(
     tag - about 12% of real games. ``cluster.py`` keeps it raw on purpose, so this
     is the one place it is shortened, and the test uses an archive value rather
     than an invented URL.
+
+    The URL goes on the habit that rank 1 is, rather than on whatever
+    ``rank_clusters`` happened to put first: since ``chess-iql`` the report's rank
+    order is by occurrences, so the entry this asserts on is chosen the way the
+    report chooses it.
     """
     real_url = next(
         game["eco_url"]
@@ -420,19 +488,21 @@ def test_a_real_chess_com_url_label_is_shortened_at_render_time(
     )
     assert real_url.startswith("https://www.chess.com/openings/")
 
-    clusters = [
-        dataclasses.replace(real_run.clusters[0], eco=real_url),
-        *real_run.clusters[1:],
-    ]
+    habits = rank_habits(real_run.clusters)
+    assert habits, "the corpus produces at least one habit to label"
+    target, *rest = habits
+    clusters = [dataclasses.replace(target, eco=real_url), *rest]
     text = read_report(clusters, tmp_path / "report.md", real_run.summary)
 
     assert heading_of(text, 1) == real_url.rsplit("/", 1)[-1], text
     assert "chess.com" not in text, "a 90-character URL must not reach a ranked entry"
     assert real_url not in text
     # The raw value is still what the cluster carries: rendering is the only place
-    # it is rewritten, so the data layer stays auditable against the archive.
+    # it is rewritten, so the data layer stays auditable against the archive, and
+    # the copy this test rendered from is a new object rather than the run's own.
     assert clusters[0].eco == real_url
-    assert format_eco(clusters[0].eco) == real_url.rsplit("/", 1)[-1]
+    assert target.eco != real_url, "the run's own cluster was not mutated"
+    assert format_eco(target.eco) == target.eco, "a plain ECO code shows as it is"
 
 
 def test_a_clean_run_writes_a_report_with_nothing_in_it(real_run: RealRun, tmp_path: Path) -> None:
@@ -444,6 +514,7 @@ def test_a_clean_run_writes_a_report_with_nothing_in_it(real_run: RealRun, tmp_p
     """
     text = read_report([], tmp_path / "clean.md", real_run.summary)
     assert text.startswith(f"# chessleak report — {ACCOUNT}")
-    assert "No recurring mistakes" in text, text
+    assert "No recurring habits" in text, text
     assert f"- **Games analyzed:** {real_run.summary['games_analyzed']}" in text
     assert f"- **Positions evaluated:** {real_run.summary['positions_evaluated']}" in text
+    assert "lower bound" in text, "an empty list is a lower bound of zero, still true"

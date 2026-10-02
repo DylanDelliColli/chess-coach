@@ -36,6 +36,7 @@ from src.chessleak.fetch import (
     HttpStatusError,
     HttpxClient,
     UnknownAccountError,
+    UnknownArchiveError,
     archive_cache_path,
     archives_url,
     cache_key,
@@ -47,7 +48,10 @@ from src.chessleak.fetch import (
     game_record_from_archive_json,
     games_from_archive_json,
     index_cache_path,
+    is_month_selector,
     list_archives,
+    month_archive_url,
+    resolve_archive,
     result_summary,
 )
 
@@ -414,6 +418,88 @@ def test_download_all_can_be_given_archives_directly(tmp_path: Path) -> None:
     assert client.calls == [ARCHIVE_URL]
     assert len(records) == 8
     assert all(r.my_color is not None for r in records)
+
+
+# --- naming an archive: a URL, or a month (chess-iql) -----------------------
+
+
+def test_a_bare_month_resolves_to_the_archives_own_url(tmp_path: Path) -> None:
+    """``--archive 2023/11`` is the natural thing to type, and it now works.
+
+    The defect ``chess-iql`` recorded: a bare month went to the client as a URL and
+    died in httpx with *"Request URL is missing an 'http://' or 'https://'
+    protocol"*. The month is matched against the account's own index, so the URL
+    fetched is one the service published, and the index is cached like any other
+    response so a second month costs nothing.
+    """
+    client = two_archive_client()
+
+    records = download_all(ACCOUNT, tmp_path, archives=["2023/11"], client=client)
+
+    assert client.calls == [INDEX_URL, ARCHIVE_URL], "the index, then the month it named"
+    assert len(records) == 8
+    assert by_url(records, "https://www.chess.com/game/live/100799725125").my_color is not None
+    # Both documents are real files on disk, keyed the way they always are.
+    assert index_cache_path(tmp_path, ACCOUNT).is_file()
+    assert archive_cache_path(tmp_path, ARCHIVE_URL).is_file()
+
+    # A second month of the same account reuses the cached index: the only request
+    # is the new month's archive, and neither the index nor the first month is
+    # fetched again.
+    again = StubClient({OTHER_ARCHIVE_URL: sample_text(sample_games()[:3])})
+    download_all(ACCOUNT, tmp_path, archives=["2023/11", "2023/12"], client=again)
+    assert again.calls == [OTHER_ARCHIVE_URL], "the index and the first month came from disk"
+
+
+def test_a_full_url_is_passed_through_and_never_consults_the_index() -> None:
+    """The existing form is unchanged, which is what keeps a bounded run bounded.
+
+    Naming the month as a URL must still cost exactly one request: a cassette
+    replay of that run plays one interaction, and an offline run has nothing to
+    resolve.
+    """
+    client = StubClient()
+
+    assert resolve_archive(ARCHIVE_URL, ACCOUNT, client=client) == ARCHIVE_URL
+    assert client.calls == []
+    assert resolve_archive(f"  {ARCHIVE_URL}  ", ACCOUNT, client=client) == ARCHIVE_URL
+    assert client.calls == [], "surrounding whitespace is trimmed, not rejected"
+
+
+def test_a_month_selector_is_a_year_a_slash_and_a_real_month() -> None:
+    assert is_month_selector("2023/11")
+    assert is_month_selector(" 2014/08 ")
+    for value in ("2023/13", "23/11", "2023-11", "2023/11/01", "november", ARCHIVE_URL, ""):
+        assert not is_month_selector(value), value
+
+
+def test_a_month_the_account_never_published_is_named_as_such() -> None:
+    """A month outside the index is a fact about the account, said plainly."""
+    client = two_archive_client()
+
+    with pytest.raises(UnknownArchiveError) as caught:
+        month_archive_url(ACCOUNT, "2019/02", client=client)
+
+    assert "2019/02" in str(caught.value)
+    assert ACCOUNT in str(caught.value)
+    assert client.calls == [INDEX_URL], "one index request, then the answer"
+
+
+def test_a_selector_that_is_neither_a_url_nor_a_month_is_refused() -> None:
+    """The run is stopped before the network, with a message that says what to type."""
+    client = StubClient()
+
+    with pytest.raises(UnknownArchiveError) as caught:
+        resolve_archive("last-month", ACCOUNT, client=client)
+
+    assert "YYYY/MM" in str(caught.value)
+    assert client.calls == [], "nothing was fetched to find that out"
+
+
+def test_an_archive_selector_failure_is_a_fetch_error() -> None:
+    """``cli.py`` catches ``FetchError`` subclasses to reach its usage exit code."""
+    assert issubclass(UnknownArchiveError, FetchError)
+    assert issubclass(UnknownAccountError, HttpStatusError)
 
 
 def test_download_all_defaults_to_the_configured_cache_dir(

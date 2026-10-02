@@ -82,13 +82,13 @@ black-to-move score — silently, and in exactly the direction the PRD calls out
 | `EngineService` | `engine.py` (U2) | `EngineService(stockfish_path, depth, cache_path, *, options: dict[str,str] \| None = None)`; context manager; `analyse(fen) -> EvalResult`; serialized engine access; counters `hits: int` and `misses: int`; sqlite cache at `cache_path` keyed `(position_key(fen), depth)` | `severity.py`, `book.py`, `cli.py` |
 | `cp_to_winprob(cp, k)` | `severity.py` (U5) | `1/(1+exp(-k*cp))`, cp only; mate mapping lives in `move_severity` | `report.py` (display) |
 | `to_my_pov(eval, my_color)` | `severity.py` (U5) | `EvalResult` converted to the player's perspective | `book.py` |
-| `move_severity(eval_best, eval_after, my_color)` | `severity.py` (U5) | `Severity`; both arguments white-POV; a terminal `eval_after` short-circuits to `winprob_drop = 1.0` and `blunder` without needing a best move | `cluster.py` |
-| `Severity` | `severity.py` (U5) | `cp_loss: int, winprob_drop: float, klass: str` where `klass ∈ {ok, inaccuracy, mistake, blunder}` | `cluster.py` |
+| `move_severity(eval_best, eval_after, my_color)` | `severity.py` (U5) | `Severity`; both arguments white-POV; classified in **centipawn** bands (operator, 2026-10-02), with `winprob_drop` shown for display only; a terminal `eval_after` short-circuits to `winprob_drop = 1.0` and `blunder` without needing a best move; a mate that appears or disappears across the move is a `blunder` whatever the centipawn figure reads | `cluster.py` |
+| `Severity` | `severity.py` (U5) | `cp_loss: int, winprob_drop: float, klass: str` where `klass ∈ {ok, inaccuracy, mistake, blunder}`, decided by `cp_loss` alone against the operator's bands (< 50 / 50-100 / 100-200 / ≥ 200) | `cluster.py` |
 | `DeviationFlag` | `book.py` (U5) | `game_id, ply_index, fen_before, my_move: str (SAN), best_move: str (SAN), cp_gap: int` with `cp_gap >= 0` meaning "worse for the player" | `cluster.py` |
 | `first_deviation(ply_records, engine, band_cp)` | `book.py` (U5) | called **once per game** with that game's window; `engine` is duck-typed on `analyse(fen) -> EvalResult`, so the unit test's stub is legitimate | `cli.py` |
 | `Cluster` | `cluster.py` (U6) | `eco: str \| None, fen_before, occurrences, my_moves: collections.Counter[str] (SAN), best_move: str (SAN), avg_winprob_drop, max_winprob_drop, deviation_count, worst_klass: str, composite_score: float` | `report.py`, `cli.py` |
-| `aggregate` / `rank_clusters` | `cluster.py` (U6) | `aggregate(scored_moves, deviations, best_moves) -> list[Cluster]` (unsorted), `rank_clusters(clusters) -> list[Cluster]` (composite desc) | `report.py`, `cli.py` |
-| `render_report` | `report.py` (U7) | `render_report(clusters, top_n, out_path, summary) -> Path`; re-sorts defensively so unsorted input cannot produce wrong ranks | `cli.py` |
+| `aggregate` / `rank_clusters` / `rank_habits` | `cluster.py` (U6) | `aggregate(scored_moves, deviations, best_moves) -> list[Cluster]` (unsorted), `rank_clusters(clusters) -> list[Cluster]` (composite desc), `rank_habits(clusters) -> list[Cluster]` (habits only: `occurrences >= 2`, occurrences desc then composite desc) | `report.py`, `cli.py` |
+| `render_report` | `report.py` (U7) | `render_report(clusters, top_n, out_path, summary) -> Path`; re-sorts defensively so unsorted input cannot produce wrong ranks; renders habits only, so `top_n` caps the habit list | `cli.py` |
 | `analyze` / `main` | `cli.py` (U8) | positional `<username>` is canonical (PRD), `--username` an alias, plus `--max-games` | operator |
 
 Decisions the beads left open, settled here:
@@ -113,6 +113,32 @@ Decisions the beads left open, settled here:
 - **Only mistakes are aggregated.** `aggregate` admits a player's move only when
   `klass != "ok"` or a `DeviationFlag` exists at that `(game_id, ply_index)`.
   `occurrences` counts admitted moves, so correct play never occupies the ranking.
+- **A mate that appears or disappears is a blunder, whatever the centipawns read**
+  (`chess-k1s`). The ruled classification is in centipawns, and a mate score
+  carries no centipawn value, so the bands alone cannot express the largest error
+  in a game: a move that walks away from a proved mate, or walks into one, measures
+  `cp_loss = 0` and would come out `ok`. Measured on the real engine it is 0 cp
+  against 0.474 of win probability. So `move_severity` short-circuits, beside the
+  terminal one above it: a mate appearing or disappearing across the move is a
+  `blunder`, with the distance read in neither direction - a player who mates in
+  four after a move that mated in three has kept the win, and one already being
+  mated in two has lost nothing the move cost. The win-probability drop is still
+  the ordinary computed figure there, which is what the report shows.
+- **The report shows habits only** (`chess-iql`, operator ruling 2026-10-02): a
+  position reached **once** is not rendered at all - "for now, focus only on
+  habits", because a one-time blunder is not a learning opportunity however bad it
+  is - and what remains is ordered by `occurrences` descending, then by composite
+  descending. `top_n` caps the habit list and the page is never padded with the
+  clusters left out. Measured on the committed 85-game cassette at the e2e test's
+  30-game bound (`chess-r0o`): 82 clusters, of which one recurs, and under the
+  composite order that habit ranked fourth, behind positions reached once - 19 of
+  the top 20 entries were one-offs. `summary` therefore carries
+  `one_off_positions_omitted` (`cluster.py` `rank_habits`, `report.py` header).
+- **The habit list is a lower bound**, and the header says so: cluster identity is
+  `position_key`, so a position reached twice by transposition, or once per side of
+  a mirrored board, is two clusters rather than one. Positional similarity
+  (deferred on `chess-sco`) can only raise these counts, so the sentence may not be
+  dropped while that bead is open.
 - **`best_move` reaches the report through a mapping.** `PlyRecord` and `Severity`
   carry no engine move, so `aggregate` takes
   `best_moves: Mapping[tuple[str, int], str]` keyed `(game_id, ply_index)` in SAN,
@@ -131,7 +157,9 @@ Decisions the beads left open, settled here:
 - **`summary` fields**, computed in `cli.py` and rendered by `report.py`:
   `games_analyzed` (games successfully parsed), `games_skipped`, `positions_evaluated`
   (distinct position keys analysed), `flagged_mistakes` (admitted moves whose
-  `worst_klass` is `mistake` or `blunder`, or that carry a deviation), `cache_hit_rate`
+  `worst_klass` is `mistake` or `blunder`, or that carry a deviation),
+  `one_off_positions_omitted` (clusters the run produced that `rank_habits`
+  withheld, added by `chess-iql` with the habits-only ruling) and `cache_hit_rate`
   (`hits / (hits + misses)`).
 - **One engine per run.** `cli.py` opens exactly one `EngineService` for the whole run
   and reuses it, so the FEN cache is shared across games.
@@ -397,7 +425,7 @@ the sign rule, and the black-side bug it invites is exactly the failure the PRD 
 
 ## Rulings needed
 
-**All five are now ruled on by the operator (2026-10-02); see the release bead.**
+**All six are now ruled on by the operator (2026-10-02); see the release bead.**
 
 1. **Q3 — severity banding: RULED.** Classify in centipawns — `ok < 50`,
    `inaccuracy 50–100`, `mistake 100–200`, `blunder ≥ 200` — and show win-probability
@@ -411,3 +439,9 @@ the sign rule, and the black-side bug it invites is exactly the failure the PRD 
    and the live end-to-end run. Committed cassettes stay on non-personal accounts,
    because this repository's remote is public.
 5. **Tag version: `0.1.0`**, not `1.0.0`. `src/chessleak/__init__.py` must agree.
+6. **Q6 — what the report is about: habits only.** "For now, focus only on habits"
+   (verbatim, 2026-10-02). The report contains only positions reached more than
+   once, ordered by occurrences descending and then by composite descending;
+   one-occurrence clusters are withheld, counted in the header, and the header
+   states that the list is a lower bound. Implemented as `chess-iql`, which also
+   added `summary.one_off_positions_omitted` above.

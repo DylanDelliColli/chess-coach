@@ -32,6 +32,17 @@ label (:func:`eco_label`); the PGN's ``[ECO]`` tag takes precedence and is
 read by ``pgnio.py``, which owns PGN parsing. ``my_color`` is derived by
 matching the account name case-insensitively (:func:`derive_my_color`) and is
 ``None`` when the caller did not say whose history it is reading.
+
+**How an archive is named.** A monthly archive can be named two ways, and both
+reach the same document: the full URL, which is what the index hands out and what
+``download_all`` uses when it walks the account's whole history, or the bare
+month the operator would type - ``2023/11`` - which :func:`resolve_archive` turns
+into a URL by asking the account's own archives index. The index is the authority
+for which months exist, so a month resolves to a URL the service itself
+published and a month that was never published is a fact about the account rather
+than a guess at its URL shape. A full URL is passed through untouched and costs no
+index request, which is what keeps a bounded, offline, cassette-replayed run
+replaying exactly the interactions that were recorded.
 """
 
 from __future__ import annotations
@@ -68,6 +79,7 @@ __all__ = [
     "HttpxClient",
     "TextClient",
     "UnknownAccountError",
+    "UnknownArchiveError",
     "archive_cache_path",
     "archives_url",
     "cache_key",
@@ -79,7 +91,11 @@ __all__ = [
     "game_record_from_archive_json",
     "games_from_archive_json",
     "index_cache_path",
+    "is_archive_url",
+    "is_month_selector",
     "list_archives",
+    "month_archive_url",
+    "resolve_archive",
     "result_summary",
 ]
 
@@ -116,6 +132,12 @@ CACHE_SUBDIR_ARCHIVES = "archives"
 #: this kind of segment; the value is kept whole (see :func:`eco_label`).
 _FILENAME_SAFE = re.compile(r"[^A-Za-z0-9]+")
 
+#: A monthly archive named the way an operator types it: ``YYYY/MM``. The month is
+#: range-checked, so ``2023/13`` is rejected as a mistyped month rather than looked
+#: for in the index. One pattern, owned here, because ``cli.py``'s argument parser
+#: validates a ``--archive`` value with the same rule before the run starts.
+MONTH_SELECTOR = re.compile(r"^\d{4}/(?:0[1-9]|1[0-2])$")
+
 
 class FetchError(RuntimeError):
     """Anything this module could not do: a bad status, an unusable payload."""
@@ -141,6 +163,26 @@ class UnknownAccountError(HttpStatusError):
     def __init__(self, username: str, url: str) -> None:
         self.username = username
         super().__init__(url, 404, f"chess.com has no public game history for {username!r}")
+
+
+class UnknownArchiveError(FetchError):
+    """The archive the caller named is not one the account has published.
+
+    Two ways to get here, both about what the operator typed rather than about
+    anything that went wrong mid-run: a ``--archive`` value that is neither a URL
+    nor a ``YYYY/MM`` month, and a month the account's index does not list (an
+    account with no games that month, or a typo). ``cli.py`` maps this to a usage
+    error for the same reason it maps :class:`UnknownAccountError` there: the fix
+    is at the command line.
+    """
+
+    def __init__(self, selector: str, username: str, detail: str = "") -> None:
+        self.selector = selector
+        self.username = username
+        message = f"{selector!r} is not a monthly archive of {username!r}"
+        if detail:
+            message = f"{message}: {detail}"
+        super().__init__(message)
 
 
 class TextClient(Protocol):
@@ -624,6 +666,78 @@ def fetch_archive(
     return games_from_archive_json(payload, username)
 
 
+def is_archive_url(value: str) -> bool:
+    """Whether ``value`` is an absolute http(s) URL with a host."""
+    parsed = urlsplit(value.strip())
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def is_month_selector(value: str) -> bool:
+    """Whether ``value`` is a bare ``YYYY/MM`` month, the way an operator types one."""
+    return MONTH_SELECTOR.match(value.strip()) is not None
+
+
+def month_archive_url(
+    username: str,
+    month: str,
+    *,
+    cache_dir: str | Path | None = None,
+    client: TextClient | None = None,
+) -> str:
+    """The URL of one ``YYYY/MM`` month of an account, from its own archives index.
+
+    The index is the authority on which months an account has published, so the
+    month is matched against it rather than pasted into a URL template: the answer
+    is a URL the service itself handed out, and a month it never published is
+    reported as such instead of producing a 404 from a guessed address.
+
+    :raises UnknownArchiveError: ``month`` is not in the index, so the account has
+        no public archive for it.
+    """
+    wanted = month.strip()
+    published = list_archives(username, cache_dir=cache_dir, client=client)
+    suffix = f"/games/{wanted}"
+    for url in published:
+        if urlsplit(url).path.endswith(suffix):
+            return url
+    raise UnknownArchiveError(
+        wanted,
+        username,
+        f"that month is not among the {len(published)} month(s) the account has published",
+    )
+
+
+def resolve_archive(
+    selector: str,
+    username: str,
+    *,
+    cache_dir: str | Path | None = None,
+    client: TextClient | None = None,
+) -> str:
+    """One ``--archive`` value as the URL to fetch.
+
+    A full URL is returned untouched and costs nothing - no index request, so a run
+    that names its month outright replays exactly the interactions that were
+    recorded and no others. A bare ``YYYY/MM`` month is resolved through the
+    account's index (:func:`month_archive_url`); that is the one case where a
+    bounded run needs a second request, and it buys the run the ability to name a
+    month the way a person says it.
+
+    :raises UnknownArchiveError: the value is neither a URL nor a month, or the
+        month is not one the account published.
+    """
+    value = selector.strip()
+    if is_archive_url(value):
+        return value
+    if is_month_selector(value):
+        return month_archive_url(username, value, cache_dir=cache_dir, client=client)
+    raise UnknownArchiveError(
+        selector,
+        username,
+        "expected a monthly archive URL or a YYYY/MM month such as 2023/11",
+    )
+
+
 def download_all(
     username: str,
     cache_dir: str | Path | None = None,
@@ -639,16 +753,21 @@ def download_all(
     index is cached by account and each monthly archive by URL. ``cache_dir``
     defaults to ``Config.cache_dir``, so this is the one call that always caches.
 
-    Games are returned newest first (``end_time`` descending), and a game listed
-    in two archives appears once, so a caller that bounds the run keeps the most
-    recent games.
+    Each entry of ``archives`` is a selector rather than necessarily a URL: a full
+    URL is used as it stands, and a bare ``YYYY/MM`` month is resolved against the
+    account's index (:func:`resolve_archive`). Games are returned newest first
+    (``end_time`` descending), and a game listed in two archives appears once, so
+    a caller that bounds the run keeps the most recent games.
     """
     root = _cache_dir(cache_dir) or _default_cache_dir()
     with _client_scope(client) as active:
         if archives is None:
             urls = list(reversed(list_archives(username, cache_dir=root, client=active)))
         else:
-            urls = [str(url) for url in archives]
+            urls = [
+                resolve_archive(selector, username, cache_dir=root, client=active)
+                for selector in archives
+            ]
         games: list[GameRecord] = []
         seen: set[str] = set()
         for url in urls:

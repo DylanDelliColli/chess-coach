@@ -84,8 +84,10 @@ def chessleak_vcr(**overrides: Any) -> vcr.VCR:
 def cassette(name: str, **overrides: Any) -> Iterator[Any]:
     """Use the named cassette, replaying it (or recording it when live).
 
-    Yields the cassette object, whose ``play_count`` and ``write_count`` let a
-    test prove that a second run made no HTTP request at all.
+    Yields the cassette object, whose ``play_count`` lets a test prove that a
+    second run made no HTTP request at all. (vcrpy 8.3 has no ``write_count``;
+    ``write_protected`` is the flag that says a replay could not have written
+    into the committed fixture.)
     """
     with chessleak_vcr(**overrides).use_cassette(name) as loaded:
         yield loaded

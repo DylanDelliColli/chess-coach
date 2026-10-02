@@ -1,4 +1,4 @@
-"""The report: the ranked recurring mistakes, written out for a person to read.
+"""The report: the player's recurring habits, written out for a person to read.
 
 Everything upstream in this release exists to fill in the fields of a
 :class:`~chessleak.cluster.Cluster`, and this module is where those fields stop
@@ -9,6 +9,34 @@ re-score, re-cluster, recompute a composite or touch the engine. It takes the li
 what makes it testable with no engine, no network and no cache - the properties
 that let a unit test build real ``Cluster`` objects by hand and let the
 integration test hand over clusters a real Stockfish produced.
+
+**The report is a list of habits, and that is the operator's ruling.** "For now,
+focus only on habits" (2026-10-02, outcome O2 of the release brief): a position
+reached **once** is not a learning opportunity however bad the move was, so it is
+not rendered at all - not ranked last, not summarised, absent. What is rendered
+is ordered by **how often** the position recurred and only then by what the leak
+cost, because the most-repeated leak is the first thing a player should read, and
+among equally repeated ones the costlier is the worse habit. ``top_n`` therefore
+truncates the habit list: a player with three habits gets a short report, which is
+the honest result, and the page is never padded with one-offs to look fuller.
+The filter is :func:`~chessleak.cluster.rank_habits`, called here defensively
+rather than assumed of the caller, so a list straight out of
+:func:`~chessleak.cluster.aggregate` - which is unfiltered by design - still
+produces a habits-only report.
+
+**The header says what the report left out, and in which direction it errs.** Two
+sentences, both unconditional:
+
+* the withheld count, with the reason - a position reached once is not a habit -
+  so a player who suspects a missing entry can see that it was a deliberate
+  omission and how many there were. The number is ``cli.py``'s, because it is a
+  fact about the run, not about this list;
+* **the habit list is a lower bound**, because only exact positions count as the
+  same position. Cluster identity is :func:`~chessleak.config.position_key`, so
+  two positions that are the same by transposition or by mirror image are two
+  clusters, and the real count is at least this one. Positional similarity
+  (deferred by the operator on ``chess-sco``) can only ever *raise* these counts,
+  which is why this sentence may not be removed while that bead is open.
 
 **The board diagram: a fenced block of Unicode pieces, not embedded SVG.** The
 bead allows either, and the choice is worth writing down because it is a real
@@ -30,12 +58,14 @@ move instead, which is the fact the reader actually needs.
 
 **Three decisions this module owns, and why they are here and not upstream.**
 
-* **The ranking is re-sorted defensively.** :func:`~chessleak.cluster.aggregate`
-  returns clusters unsorted, and :func:`~chessleak.cluster.rank_clusters` is the
-  release's single owner of the composite ordering, so this module calls it rather
-  than writing a second sort. A caller that forgets to rank therefore cannot
-  produce a report whose rank 1 is the player's *worst* leak - the failure a
-  frequency ranking exists to prevent, and the one a reader would act on.
+* **The ranking is re-sorted defensively, and to the ruled order.**
+  :func:`~chessleak.cluster.aggregate` returns clusters unsorted and
+  :func:`~chessleak.cluster.rank_clusters` is the release's owner of the composite
+  ordering, so the habit order
+  (:func:`~chessleak.cluster.rank_habits`, which is a filter *and* a sort) is
+  called here rather than written out again: a caller that forgets to rank, or
+  that ranks by cost, therefore cannot produce a report whose rank 1 is somebody's
+  worst one-off - the failure the operator's ruling removed.
 * **A chess.com opening URL is shortened to its last path segment, here and once.**
   ``cluster.py`` keeps ``Cluster.eco`` raw, ruled on ``chess-egx``: a data layer
   that rewrites a value it did not create cannot be audited against its source,
@@ -49,6 +79,9 @@ move instead, which is the fact the reader actually needs.
   warning when a field is missing rather than quietly printing a number of its own
   invention. A missing field renders as an em dash, because a report that crashed
   on a partial summary would lose the four hundred games' worth of findings in it.
+  The withheld count is such a field: it is printed twice, once as a header bullet
+  beside the other five and once inside the sentence that explains it, and both
+  come from the one value, so they cannot disagree.
 
 Two smaller rules, both about a reader rather than a machine: a value in
 ``0..1`` that means a share is printed as a percentage with one decimal, and a
@@ -68,12 +101,14 @@ from urllib.parse import unquote, urlparse
 
 import chess
 
-from .cluster import NO_BEST_MOVE, Cluster, rank_clusters
+from .cluster import NO_BEST_MOVE, Cluster, rank_habits
 
 __all__ = [
     "DEVIATION_MARKER",
     "EM_DASH",
+    "LOWER_BOUND_SENTENCE",
     "SUMMARY_FIELDS",
+    "WITHHELD_FIELD",
     "format_eco",
     "render_board",
     "render_report",
@@ -92,6 +127,13 @@ EM_DASH = "—"
 #: a chess annotation.
 DEVIATION_MARKER = "⚑"
 
+#: The ``summary`` field carrying how many positions the run reached only once.
+#: ``chess-iql`` added it with the operator's habits-only ruling: a reader who can
+#: see that twelve entries were withheld can weigh the list, and one who cannot is
+#: being shown a list of unknown completeness. ``cli.py`` computes it from the
+#: clusters the run produced; this module only prints it.
+WITHHELD_FIELD = "one_off_positions_omitted"
+
 #: The header fields, in the order the design record defines them. The tuple is
 #: the order the report prints them in and the set the module's own tests check
 #: against, so a field added to the record without a line here is a visible gap
@@ -102,6 +144,7 @@ SUMMARY_FIELDS: tuple[tuple[str, str], ...] = (
     ("positions_evaluated", "Positions evaluated"),
     ("flagged_mistakes", "Flagged mistakes"),
     ("cache_hit_rate", "Eval cache hit rate"),
+    (WITHHELD_FIELD, "One-off positions omitted"),
 )
 
 #: The same fields keyed for lookup, so printing one does not rebuild the mapping.
@@ -136,6 +179,23 @@ _PERCENT = "{:.1f}%"
 #: The composite is a ranking key, not a measurement, so it does not need the
 #: precision the win-probability figures do.
 _COMPOSITE = "{:.2f}"
+
+#: The standing sentence under the header, printed whether or not anything was
+#: withheld. It is a property of how positions are counted rather than of this
+#: run: cluster identity is ``position_key``, so a position reached twice by
+#: transposition, or reached once as White and once as a mirrored board, is two
+#: clusters rather than one, and the true habit count can only be higher. Keep it
+#: while ``chess-sco`` (positional similarity, deferred by the operator on
+#: 2026-10-02) is open: that work can only raise these counts, so removing the
+#: sentence would be true by accident and wrong by omission.
+LOWER_BOUND_SENTENCE = (
+    "_This list is a lower bound: only exact positions count as the same position, so a "
+    "transposed or mirrored repeat is counted separately and would only raise the count._"
+)
+
+#: The reason a one-off is not in the report. It is the operator's own argument,
+#: so it is written once and quoted into the withheld sentence.
+_NOT_A_HABIT = "reached once, so not habits"
 
 
 # -- the ECO label (chess-egx) ------------------------------------------------
@@ -325,9 +385,39 @@ def _header(summary: Mapping[str, object]) -> list[str]:
     """The report's title and the run's provenance, in the record's field order."""
     username = str(summary.get("username") or "").strip()
     title = f"# chessleak report — {username}" if username else "# chessleak report"
-    lines = [title, "", "Recurring opening mistakes, ranked by how often they cost you.", ""]
+    lines = [title, "", "Recurring opening habits, ranked by how often you reach them.", ""]
     lines += [_summary_line(field, summary.get(field)) for field, _ in SUMMARY_FIELDS]
     return lines
+
+
+def _count(value: object) -> int | None:
+    """A summary figure read as a count, or ``None`` when it is not one.
+
+    A withheld count arrives as an ``int`` from ``cli.py`` and as a string from a
+    hand-written summary, and anything else is a gap rather than a number to
+    guess at - which is the same rule the rest of the header follows for a field
+    the caller left out.
+    """
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _withheld_line(count: object) -> str:
+    """What the report left out, and why, in the reader's own terms.
+
+    Printed even when the count is zero: "nothing was withheld" is a fact about
+    the run worth stating once, and a run that found no one-offs at all is not
+    rarer than a run that found only one-offs. A count the summary did not supply
+    renders as the em dash with a logged warning, on the same terms as every other
+    field here.
+    """
+    number = _count(count)
+    if number is None:
+        log.warning("summary has no %r field, rendering it as %s", WITHHELD_FIELD, EM_DASH)
+        return f"_{EM_DASH} one-off positions omitted ({_NOT_A_HABIT})._"
+    return f"_{_plural(number, 'one-off position')} omitted ({_NOT_A_HABIT})._"
 
 
 def _entry(rank: int, cluster: Cluster) -> list[str]:
@@ -362,10 +452,18 @@ def _entry(rank: int, cluster: Cluster) -> list[str]:
 
 
 def _ranking_line(shown: int, total: int) -> str:
-    """What the report is showing, and what it left out."""
+    """What the report is showing: the habit list, and what ``top_n`` capped.
+
+    The wording names the order the reader is looking at, because "ranked" on its
+    own does not say whether the first entry is the most repeated or the most
+    expensive. It is a cap on the habit list only: a report that reported how many
+    habits it left out by ``top_n`` would be a report about the display, and the
+    withheld sentence below already accounts for what is genuinely not in it.
+    """
+    order = "by how often you reach them, then by what they cost"
     if shown >= total:
-        return f"_{_plural(total, 'recurring position')} ranked by composite score._"
-    return f"_Showing the top {shown} of {total} recurring positions, by composite score._"
+        return f"_{_plural(total, 'habit')}, {order}._"
+    return f"_Showing the top {shown} of {_plural(total, 'habit')}, {order}._"
 
 
 # -- the report ---------------------------------------------------------------
@@ -380,13 +478,16 @@ def render_report(
     """Write the ranked markdown report and return the path it was written to.
 
     ``clusters`` is what :func:`~chessleak.cluster.aggregate` produced; it is
-    re-sorted here through :func:`~chessleak.cluster.rank_clusters`, defensively,
-    so unsorted input cannot produce wrong ranks. ``top_n`` caps how many are
-    rendered - the operator's ``Config.top_n`` - and the report states what it
-    capped, because a report that silently dropped entries reads as a finding
-    about the player's play when it is a fact about the display. A negative
-    ``top_n`` raises ``ValueError`` here rather than writing an empty report: it is
-    a usage error, and ``cli.py`` turns one into its usage exit code.
+    filtered and re-sorted here through
+    :func:`~chessleak.cluster.rank_habits`, defensively, so unsorted input - and
+    input that has not been filtered - cannot produce wrong ranks or a one-occurrence
+    entry. ``top_n`` caps how many *habits* are rendered - the operator's
+    ``Config.top_n`` - and the report states what it capped, because a report that
+    silently dropped entries reads as a finding about the player's play when it is a
+    fact about the display. It is never padded with the clusters that were left
+    out: a player with two habits gets a two-entry report. A negative ``top_n``
+    raises ``ValueError`` here rather than writing an empty report: it is a usage
+    error, and ``cli.py`` turns one into its usage exit code.
 
     ``out_path`` may be a ``Path`` or a string, since ``cli.py`` will have whatever
     argparse produced. Parent directories are created, so a first run does not
@@ -394,23 +495,26 @@ def render_report(
     a second run over an unchanged cache rewrites the report instead of appending
     to it.
 
-    ``summary`` is rendered, never computed - it is ``cli.py``'s, and the five
-    count fields plus ``username`` are the ones the design record defines. A field
-    the caller left out becomes an em dash and a log warning, not a number of this
-    module's own invention.
+    ``summary`` is rendered, never computed - it is ``cli.py``'s, and the count
+    fields plus ``username`` are the ones the design record defines. A field the
+    caller left out becomes an em dash and a log warning, not a number of this
+    module's own invention. The withheld count is one of them: this module cannot
+    know how many one-offs the run produced, because the list it is handed may
+    already have been filtered, so it says what it is told.
     """
     if top_n < 0:
         raise ValueError(f"top_n must be zero or more, got {top_n}")
 
-    ranked = rank_clusters(clusters)
-    shown = ranked[:top_n]
+    habits = rank_habits(clusters)
+    shown = habits[:top_n]
     summary = summary or {}
 
     lines = _header(summary)
-    lines += ["", _ranking_line(len(shown), len(ranked)), ""]
+    lines += ["", _ranking_line(len(shown), len(habits)), ""]
+    lines += [_withheld_line(summary.get(WITHHELD_FIELD)), "", LOWER_BOUND_SENTENCE, ""]
     if not shown:
         lines += [
-            "## No recurring mistakes",
+            "## No recurring habits",
             "",
             "No position in this run was both reached more than once and played worse "
             "than the engine's best. Nothing to fix here.",
@@ -422,6 +526,10 @@ def render_report(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     log.info(
-        "wrote %s: %d of %d recurring positions, top_n=%d", path, len(shown), len(ranked), top_n
+        "wrote %s: %d of %d habits, top_n=%d",
+        path,
+        len(shown),
+        len(habits),
+        top_n,
     )
     return path
