@@ -17,6 +17,15 @@
 
 ## Product fit
 
+**The product goal, stated by the operator on 2026-10-02, is that someone becomes a better
+chess player — not that they get an interesting analysis of their games.** Every future
+change is measured against that: a feature that describes their games without helping them
+improve is out of scope. It is why the report shows habits only (a repeated position is a
+habit, and a habit can be changed; a one-time blunder is a fact about one game), and why
+positional similarity — the mechanism that detects "you do this every time" when the
+repetition is spread across equivalent positions — is the leading candidate for the release
+after `0.1.0` (`chess-sco`), not a cosmetic clustering improvement.
+
 Serves PRD outcome "surface the player's most consequential recurring opening
 mistakes", for a player who already has hundreds of recorded chess.com games and
 reviews them one at a time. It must not become a whole-game analyzer, an opponent
