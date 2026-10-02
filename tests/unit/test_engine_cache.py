@@ -168,7 +168,9 @@ def test_cache_key_is_the_position_not_the_move_counters(
     assert again.cp == 31
 
 
-def test_the_searched_board_is_the_cache_key(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_the_searched_board_is_the_cache_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """The engine is asked about the position the key names, counters and all.
 
     Stockfish takes its ``rule50`` from the FEN it is given, so the same board at

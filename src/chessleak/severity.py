@@ -350,10 +350,12 @@ def move_severity(
     best = to_my_pov(eval_best, my_color)
     after = to_my_pov(eval_after, my_color)
 
-    cp_loss = max(0, _cp(best) - _cp(after))
-
     if _mated_the_opponent(after):
+        # There is nothing to subtract from the position before: the move ended
+        # the game in the player's favour, which is the best outcome there is.
         return Severity(cp_loss=0, winprob_drop=0.0, klass=OK)
+
+    cp_loss = max(0, _cp(best) - _cp(after))
 
     winprob_drop = max(0.0, _winprob(best, k) - _winprob(after, k))
     if _lost_the_game_to_mate(best, after):

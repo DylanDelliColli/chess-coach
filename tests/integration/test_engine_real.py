@@ -196,10 +196,7 @@ def test_the_halfmove_clock_is_not_part_of_a_position_s_score(
     empty cache, so nothing is replayed and the comparison is between two real
     searches.
     """
-    fens = {
-        clock: f"{CLOCK_SENSITIVE_PLACEMENT} b KQkq - {clock} 3"
-        for clock in (0, 3)
-    }
+    fens = {clock: f"{CLOCK_SENSITIVE_PLACEMENT} b KQkq - {clock} 3" for clock in (0, 3)}
 
     answers = {}
     for clock, fen in fens.items():

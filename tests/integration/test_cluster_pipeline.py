@@ -385,10 +385,7 @@ def test_recurring_positions_in_the_archive_are_correct_play(real_run: RealRun) 
         assert admitted, f"the ranked position {key} has no scored move of the player's"
         assert any(
             m.severity.klass != OK or (m.game_id, m.ply_index) in flagged for m in admitted
-        ), (
-            f"a position reached in {len(games)} games is in the ranking with nothing "
-            "flagged at it"
-        )
+        ), f"a position reached in {len(games)} games is in the ranking with nothing flagged at it"
 
     assert most_repeated_key not in clustered, (
         "the fixture's headline claim: the most repeated position is the player's "
