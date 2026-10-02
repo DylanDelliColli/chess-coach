@@ -7,8 +7,23 @@ is a standard opening line written out here rather than a fixture file, because
 ``tests/fixtures/*.pgn`` belongs to the extraction unit and the point of these
 tests is a line with a *known* deviation ply, not a real game's statistics.
 
-Measured on this host with Stockfish 19 at depth 18, ``Threads=2``; the per-ply
+Measured on this host with Stockfish 19 at depth 18, ``Threads=1``; the per-ply
 gaps quoted in the comments are that measurement, and the assertions are bounds.
+
+Two properties of a real engine make those measurements worth stating, because
+both were found the hard way on this host:
+
+* **``Threads=1``, not the service's default of 2.** Stockfish's multi-threaded
+  search is not reproducible: the same position at depth 18 came back as +1, 0,
+  +13 and -2 cp with two different best moves across four separate processes.
+* **A position's score depends on what was searched before it.** python-chess
+  does not send ``ucinewgame`` between analyses, so the engine's transposition
+  table carries over and the same position can be worth tens of centipawns more
+  or less depending on the order (measured: the Caro-Kann position at +16 in a
+  fresh process and +20 after one other position). Every test here therefore
+  searches a fixed sequence in its own engine and its own cache, which is what
+  makes a measurement repeatable; the pipeline is deterministic in the same way,
+  because it re-reads the same games in the same order.
 """
 
 from __future__ import annotations
@@ -33,25 +48,34 @@ pytestmark = pytest.mark.integration
 DEPTH = 18
 
 #: A quiet Italian the player follows for seven of their own moves. Measured gaps
-#: for the player at plies 0-12: -5, +5, +1, -1, -1, +2, -4, all inside the 30 cp
-#: book band. Then 8.Nxe5??: measured +686 cp against the engine's line, and the
-#: engine's own move in that position is 8.h3.
+#: for the player at plies 0-12: 9, 0, 17, 8, 0, 0, 0, all inside the 30 cp book
+#: band. Then 8.Nxe5??: measured 706 cp against the engine's line, and the
+#: engine's own move in that position is 8.Nbd2.
 BOOK_THEN_DEVIATION = (
     "1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. c3 Nf6 5. d3 d6 6. O-O O-O 7. Re1 a5 8. Nxe5"
 )
 DEVIATION_PLY = 14
 DEVIATION_MOVE = "Nxe5"
+DEVIATION_ENGINE_MOVE = "Nbd2"
 #: A line with no deviation at all: every player move is inside the band.
 ALL_BOOK = BOOK_THEN_DEVIATION.replace(" 8. Nxe5", " 8. Bg5")
 
 #: A black-player line that keeps the band for four moves and then gives up a
-#: pawn: measured +38 for white before, +91 after, so a 53 cp loss for black.
+#: pawn: measured +18 for white before and +91 after, so a 73 cp loss for black.
 SMALL_LEAK = "1. e4 c6 2. d4 d5 3. Nc3 dxe4 4. Nxe4 Nf6 5. Nxf6+ gxf6 6. Nf3"
 LEAK_PLY = 9
 LEAK_MOVE = "gxf6"
 
 #: Fool's mate: the player's move ends the game, which is not a book deviation.
+#: The line is played from the *mating* side's point of view, because the point
+#: is the player's own mating move: a position with no move to play afterwards.
 FOOLS_MATE = "1. f3 e5 2. g4 Qh4+"
+MATING_COLOR = "black"
+
+
+#: The options this file searches with: one thread, so every measurement above is
+#: reproducible. See the module docstring.
+ENGINE_OPTIONS = {"Threads": "1", "Hash": "128"}
 
 
 @pytest.fixture(scope="module")
@@ -69,7 +93,9 @@ def engine_path() -> str:
 @pytest.fixture
 def engine(engine_path: str, tmp_path: Path):
     """A real engine with a real sqlite cache in this test's own tmp_path."""
-    with EngineService(engine_path, DEPTH, tmp_path / "evalcache.sqlite") as service:
+    with EngineService(
+        engine_path, DEPTH, tmp_path / "evalcache.sqlite", options=ENGINE_OPTIONS
+    ) as service:
         yield service
 
 
@@ -97,7 +123,7 @@ def test_real_opening_deviation(engine: EngineService) -> None:
 
     Fifteen plies of a real Italian, extracted by the real extractor with the
     real engine behind it: the player's own moves stay inside the 30 cp band
-    until ply 14, where 8.Nxe5?? is 686 cp worse than the engine's 8.h3.
+    until ply 14, where 8.Nxe5?? is 706 cp worse than the engine's 8.Nbd2.
     """
     plies = opening(BOOK_THEN_DEVIATION, my_color="white")
 
@@ -107,7 +133,7 @@ def test_real_opening_deviation(engine: EngineService) -> None:
     assert flag.ply_index == DEVIATION_PLY
     assert flag.game_id == "real-engine-game"
     assert flag.my_move == DEVIATION_MOVE
-    assert flag.best_move == "h3", "the engine's move in that position, in SAN"
+    assert flag.best_move == DEVIATION_ENGINE_MOVE, "the engine's move in SAN"
     assert flag.fen_before == plies[DEVIATION_PLY].fen_before
     assert flag.cp_gap > DEFAULT_BOOK_BAND_CP
     assert 500 < flag.cp_gap < 900, f"measured cp gap was {flag.cp_gap}"
@@ -144,7 +170,7 @@ def test_the_earlier_player_moves_are_never_flagged(engine: EngineService) -> No
 def test_real_black_player_leak_is_flagged_with_the_right_sign(engine: EngineService) -> None:
     """A black player who gives up a pawn is flagged with a positive gap.
 
-    Four black moves stay in the band; 6...gxf6 loses 53 centipowns measured, and
+    Four black moves stay in the band; 6...gxf6 loses 73 centipawns measured, and
     the gap must come out positive. With the sign rule broken, Black's loss reads
     as a gain and nothing is flagged at all.
     """
@@ -169,20 +195,25 @@ def test_a_black_player_who_keeps_the_book_is_not_flagged(engine: EngineService)
     best replies improves on the engine's own line in several plies, and those
     must read as gains rather than as leaks.
     """
-    plies = opening("1. e4 c6 2. d4 d5 3. Nc3 dxe4 4. Nxe4 Nf6 5. Nxf6+ exf6 6. Nf3", my_color="black")
+    plies = opening(
+        "1. e4 c6 2. d4 d5 3. Nc3 dxe4 4. Nxe4 Nf6 5. Nxf6+ exf6 6. Nf3", my_color="black"
+    )
 
     assert first_deviation(plies, engine, band_cp=DEFAULT_BOOK_BAND_CP) is None
 
 
 def test_the_band_really_is_what_decides_these_two(engine: EngineService) -> None:
-    """The same 53 centipawn leak is in book at 60 cp and out of it at 30.
+    """The same 73 centipawn leak is in book at 100 cp and out of it at 30.
 
     Both calls run the real engine again, and the answers differ only in the
-    band: the trigger is a width in centipawns, not a severity judgement.
+    band: the trigger is a width in centipawns, not a severity judgement. The
+    two bands stand well clear of the measured 73 cp gap, because a real engine's
+    figure for a position moves by tens of centipawns with the order it was
+    searched in (see the module docstring).
     """
     plies = opening(SMALL_LEAK, my_color="black")
 
-    assert first_deviation(plies, engine, band_cp=60) is None
+    assert first_deviation(plies, engine, band_cp=100) is None
     flagged = first_deviation(plies, engine, band_cp=DEFAULT_BOOK_BAND_CP)
     assert flagged is not None
 
@@ -191,15 +222,18 @@ def test_the_band_really_is_what_decides_these_two(engine: EngineService) -> Non
 
 
 def test_mating_inside_the_window_is_not_a_deviation(engine: EngineService) -> None:
-    """Fool's mate: the player's move ends the game, and the flag says nothing.
+    """Fool's mate, from the mating side: the player's own move ends the game.
 
     ``engine.py`` answers a mated position as ``mate = 0`` from either side, so
     the board is what says who is mated. The side to move after the player's move
-    is the opponent, and it is the opponent who cannot move.
+    is the opponent, and it is the opponent who cannot move: the player has just
+    won the game, which is the opposite of leaving a book, and the gap says so
+    however a finished position is scored.
     """
-    plies = opening(FOOLS_MATE, my_color="white")
+    plies = opening(FOOLS_MATE, my_color=MATING_COLOR)
     last = plies[-1]
-    assert last.move_san == "Qh4+" and chess.Board(last.fen_after).is_checkmate()
+    assert last.move_san == "Qh4#" and chess.Board(last.fen_after).is_checkmate()
+    assert last.is_my_move, "the player is the side that mates"
 
     flag = first_deviation(plies, engine, band_cp=DEFAULT_BOOK_BAND_CP)
 
@@ -258,7 +292,9 @@ def test_a_game_that_could_not_be_parsed_yields_no_deviation(engine: EngineServi
     ``pgnio`` logs and skips a game with an illegal move rather than analysing a
     short one; ``first_deviation`` never sees a record for it.
     """
-    corrupt = pgn_of("1. e4 e5 2. Nf3 Nc6 3. Bb5", headers={"Event": "broken"})
+    # The last move tries to push the e4 pawn onto e5, which a black pawn occupies:
+    # syntactically fine, not a legal move, which is the case pgnio has to catch.
+    corrupt = pgn_of("1. e4 e5 2. Nf3 Nc6 3. Bb5 4. e5", headers={"Event": "broken"})
     record = make_record(id="broken-game", pgn=corrupt, my_color="white")
 
     assert extract_opening_plies(record, max_plies=15) == []

@@ -55,7 +55,7 @@ __all__ = ["DeviationFlag", "EngineLike", "MATE_CP", "first_deviation"]
 
 log = logging.getLogger(__name__)
 
-#: The centipawn value a mate score is worth in the centipown arithmetic, and its
+#: The centipawn value a mate score is worth in the centipawn arithmetic, and its
 #: negation for a mate against the player. A mate score has no centipawn value
 #: (``engine.py`` keeps ``cp`` and ``mate`` mutually exclusive), so the gap needs
 #: a stand-in. It is deliberately far beyond any band a caller can configure, so

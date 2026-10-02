@@ -199,10 +199,10 @@ def _winprob(evaluation: EvalResult, k: float) -> float:
 
 
 def _cp(evaluation: EvalResult) -> int:
-    """The evaluation as a centipown figure, with nothing to convert worth 0.
+    """The evaluation as a centipawn figure, with nothing to convert worth 0.
 
     A mate score and a finished position have no centipawn value, so both
-    contribute zero to the centipown loss. The centipown figure is the one field
+    contribute zero to the centipawn loss. The centipawn figure is the one field
     of :class:`Severity` the report shows in the units a chess player reads, and
     it is a difference of two figures rather than a win probability, so it cannot
     be a clamp away.
