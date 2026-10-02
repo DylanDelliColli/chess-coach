@@ -42,12 +42,17 @@ network work.
 *Surfaces: the report's ranked cluster sections; the cluster data structure other
 units consume.*
 
-The player's moves are keyed by (ECO, exact FEN through the opening phase).
-Clusters rank by `occurrences × average win-probability drop`, with a small weight
-per book deviation, so a habitual leak outranks a single large blunder in an
-unusual position. Each cluster reports occurrences, the player's usual moves with
-counts, the engine's best move, average and maximum win% lost, and a deviation
-marker when deviations were flagged there.
+The player's moves are keyed by the exact position through the opening phase (ECO is a
+display label). **The report shows habits only** (operator ruling, 2026-10-02): a position
+reached more than once, ordered by occurrences descending and then by cost. A position
+reached once is not surfaced at all -- a one-time blunder is not a learning opportunity --
+and the header states how many were withheld, and that the list is a lower bound, because
+only exact positions count as the same position.
+
+Each cluster reports occurrences, the player's usual moves with counts, the engine's best
+move, average and maximum win% lost, and a deviation marker when deviations were flagged
+there. `top_n` truncates the habit list, so a player with fewer habits gets a short report,
+which is the honest result.
 
 ### O3 — Severity in centipawn bands, win% for display
 *Ruled by the operator on 2026-10-02, replacing the original 2026-06-05 win-probability
