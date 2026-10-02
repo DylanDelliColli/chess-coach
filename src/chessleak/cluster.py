@@ -40,9 +40,10 @@ and one of them measured on real data:
   stays, and stays the composite order, because the composite is still the honest
   description of what a leak cost - the two orderings answer different questions
   and the release wants both of them. Measured on the committed 85-game cassette
-  at the e2e test's bound: 82 clusters, of which one recurs, and under the
-  composite order that one-off-laden list put the single habit fourth. The ruling
-  is the operator's, on ``chess-r0o`` and outcome **O2** of the release brief.
+  at the e2e test's bound (recorded on ``chess-r0o``): 82 clusters, of which one
+  recurs, and under the composite order that habit ranked fourth, behind 19
+  one-occurrence entries in the top 20. The ruling is the operator's, on
+  ``chess-r0o`` and outcome **O2** of the release brief.
 
 The ECO label is kept **raw**, exactly as the extractor produced it, including a
 chess.com opening URL (about 12% of real games carry the archive's URL rather than

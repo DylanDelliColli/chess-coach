@@ -83,5 +83,11 @@ assertion path.
 
 ## Open questions for the operator
 
-1. Which real chess.com account validates v1 end to end (R4)?
-2. Confirm the v1 semantic version to tag at acceptance (`1.0.0` proposed).
+1. ~~Which real chess.com account validates v1 end to end (R4)?~~ **Answered
+   2026-10-02: `kijuu11`**, the operator's own account, for the uncoached
+   walkthrough and the live end-to-end run. Committed cassettes stay on
+   non-personal accounts, because the repository's remote is public.
+2. ~~Confirm the v1 semantic version to tag at acceptance.~~ **Answered
+   2026-10-02: `0.1.0`**, not the `1.0.0` proposed here. `pyproject.toml` and
+   `src/chessleak/__init__.py` both carry it, and `tests/unit/test_version.py`
+   pins the two against each other.

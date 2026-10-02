@@ -155,6 +155,11 @@ def run(tmp_path_factory: pytest.TempPathFactory, engine_path: str) -> dict:
         "text": text,
         "cache_dir": cache_dir,
         "played": loaded.play_count,
+        # Whether the run above cached an archives index, recorded while the run
+        # above was the only thing that had touched this cache directory. The
+        # ``month_run`` fixture shares the directory and does write an index, so
+        # asking the filesystem later would measure the wrong run.
+        "index_cached": (cache_dir / CACHE_SUBDIR_INDEX).exists(),
         # vcrpy 8 exposes no write_count; the write-protect flag is the stronger
         # statement anyway - with record_mode="none" the cassette is sealed, so a
         # run that tried to record into it would have raised rather than quietly
@@ -516,12 +521,12 @@ def test_the_cache_directory_holds_real_archive_and_eval_files(run: dict) -> Non
     assert '"games"' in archives[0].read_text(encoding="utf-8"), (
         "the cached archive is the raw monthly document"
     )
-    # No archives_index directory: this run named the month with --archive, so it
-    # never asked for the account's index and never cached one. Asserted as absent
-    # rather than skipped, because a run that did enumerate the index would write
-    # it here and this test would be measuring a different pipeline.
-    assert not (cache_dir / "archives_index").exists(), (
-        "a --archive run does not consult or cache the account's archives index"
+    # No archives index: this run named the month with a full --archive URL, so it
+    # never asked for the account's index and never cached one. Asserted from what
+    # the run recorded rather than from the directory, because the bare-month run
+    # below shares this cache directory and does resolve a month through the index.
+    assert not run["index_cached"], (
+        "a --archive run naming a full URL does not consult or cache the account's archives index"
     )
     assert evals.is_file(), f"the evaluation cache {evals} is a real sqlite file on disk"
     assert evals.stat().st_size > 0, "the evaluation cache holds rows"

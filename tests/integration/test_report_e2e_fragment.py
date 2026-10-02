@@ -368,17 +368,26 @@ def test_report_from_real_clusters(real_run: RealRun, tmp_path: Path) -> None:
     assert out.is_file() and out.stat().st_size > 0
     assert text.startswith(f"# chessleak report — {ACCOUNT}")
 
-    # 2. A real ECO code, out of the real archive, as an opening name in the page.
-    real_ecos = {game.eco for game in fixture_games() if game.eco}
-    assert real_ecos, "the real archive games carry ECO tags"
-    labels = [heading_of(text, rank) for rank in range(1, len(entries(text)) + 1)]
-    assert any(label in real_ecos for label in labels), (
-        f"no real ECO code among the headings: {labels}"
+    # 2. Every entry is labelled with its own cluster's ECO, rendered readably.
+    #    The real archive's codes are in the run's *data* (see the withheld
+    #    clusters below) but not necessarily on the page: the only habit this
+    #    corpus produces is the transposition position, so a real archive label
+    #    would have to belong to a position that was reached once, and the
+    #    operator's ruling keeps those off the page. Asserting one here would
+    #    assert the filter is broken.
+    habits = rank_habits(clusters)
+    labels = [heading_of(text, rank) for rank in range(1, len(habits) + 1)]
+    assert labels == [format_eco(cluster.eco) for cluster in habits], (
+        f"each entry carries its own cluster's label: {labels}"
     )
     assert any(re.fullmatch(r"[A-E]\d\d", label) for label in labels), labels
+    real_ecos = {game.eco for game in fixture_games() if game.eco}
+    assert real_ecos, "the real archive games carry ECO tags"
+    assert {cluster.eco for cluster in clusters} & real_ecos, (
+        "the run's clusters still carry the real archive's own ECO codes"
+    )
 
     # 3. A real board diagram, square for square, of the position rank 1 is about.
-    habits = rank_habits(clusters)
     top = habits[0]
     assert cells_of(board_block(text, 1)) == expected_cells(top.fen_before), (
         f"the diagram does not draw {top.fen_before}"
@@ -489,9 +498,11 @@ def test_a_real_chess_com_url_label_is_shortened_at_render_time(
     assert "chess.com" not in text, "a 90-character URL must not reach a ranked entry"
     assert real_url not in text
     # The raw value is still what the cluster carries: rendering is the only place
-    # it is rewritten, so the data layer stays auditable against the archive.
-    assert target.eco == real_url
-    assert format_eco(target.eco) == real_url.rsplit("/", 1)[-1]
+    # it is rewritten, so the data layer stays auditable against the archive, and
+    # the copy this test rendered from is a new object rather than the run's own.
+    assert clusters[0].eco == real_url
+    assert target.eco != real_url, "the run's own cluster was not mutated"
+    assert format_eco(target.eco) == target.eco, "a plain ECO code shows as it is"
 
 
 def test_a_clean_run_writes_a_report_with_nothing_in_it(real_run: RealRun, tmp_path: Path) -> None:
