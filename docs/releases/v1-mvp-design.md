@@ -2,9 +2,10 @@
 
 - Release, release bead and brief revision: chessleak v1 MVP, `chess-r0o`, brief
   `docs/releases/v1-mvp.md` SHA-256
-  `c84e58d6e05b13679cf432b66b269e1a6a2e5e25cf2e7b2bbcd08ee694605915` (revision 2,
-  2026-10-01). Revision 1 of this record cited `a47c72f2...`, the brief hash before
-  its editorial unit-count correction; no product commitment changed in that edit.
+  `407cc9037400c99788f00b79779af806df287cc943227b2306244d99dda42d3c` (revision 3,
+  2026-10-02: outcome O2 rewritten to habits-only by operator ruling, and the tag set to
+  0.1.0). Earlier revisions cited `c84e58d6...` and `a47c72f2...`, the brief hash before
+  those rulings. A hash identifies a version; the operator decision establishes authority.
 - Base commit the record describes: `3cd05e8` on `master` (bd→br migration); the
   release branch `release/v1-mvp` carries the PRD and brief at `bee8805` and this
   record's first revision at `29a5fb5`.
