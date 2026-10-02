@@ -8,7 +8,11 @@ plays the engine's own reply and asks the board whether the piece is gone, so
 
 Measured on this host with Stockfish 19 at depth 18; the numbers in the comments
 are that measurement and the assertions are written as bounds, not as equalities,
-so a different build of the same engine cannot make them lie.
+so a different build of the same engine cannot make them lie. Spot checks on
+2026-10-02 (the severity band's move to centipowns) found some of the recorded
+figures a few centipawns out - the Italian reads +2 rather than +18 and the
+Caro-Kann leak 73 cp rather than 56 - which is the reason for the bounds. Where a
+figure decides a class, the difference is recorded at the fixture.
 
 The search itself is the service's default: one thread, and a ``ucinewgame``
 before every position. Both are there for the same reason, which is that a test
@@ -34,13 +38,30 @@ from src.chessleak.engine import EngineService, EvalResult
 from src.chessleak.severity import (
     BLUNDER,
     INACCURACY,
-    INACCURACY_DROP,
+    INACCURACY_CP,
+    MISTAKE,
     OK,
     cp_to_winprob,
     move_severity,
 )
 
 pytestmark = pytest.mark.integration
+
+#: The operator's centipawn bands, ruled 2026-10-02, written out here rather
+#: than imported. The tests below check real engine numbers against this copy of
+#: the rule, so they cannot be satisfied by a ``severity.py`` that classifies
+#: however it likes: ``ok`` under 50, inaccuracy from 50, mistake from 100,
+#: blunder from 200.
+RULED_CP_BANDS = ((200, BLUNDER), (100, MISTAKE), (50, INACCURACY))
+
+
+def band_of(cp_loss: int) -> str:
+    """The class the ruled bands give a centipawn loss, restated for this file."""
+    for threshold, klass in RULED_CP_BANDS:
+        if cp_loss >= threshold:
+            return klass
+    return OK
+
 
 #: The release's real-journey depth (Config.analysis_depth). Twelve positions at
 #: this depth is about four seconds on this host, so the suite can afford it.
@@ -66,17 +87,32 @@ HANG_THE_QUEEN_BLACK_FEN = "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQ1
 HANG_THE_QUEEN_BLACK = "d8h4"
 
 #: 1.e4 c6 2.d4 d5 3.Nc3 dxe4 4.Nxe4 Nf6 5.Nxf6+ gxf6, black to move. This is the
-#: habitual small leak the book trigger exists for: measured +37 for white before
-#: and +93 after, so a 56 centipawn loss for black, worth a 0.055 win-probability
-#: drop - outside the 30 cp book band, and below the 0.07 inaccuracy line.
+#: habitual small leak the book trigger exists for: 56 centipawns of loss as U5
+#: measured it (+37 for white before, +93 after), 73 on the 2026-10-02
+#: re-measurement (+16 and +89). Both are outside the 30 cp book band and both are
+#: an inaccuracy under the operator's 2026-10-02 centipawn bands; under the
+#: superseded 2026-06-05 win-probability thresholds the same loss was a 0.055-0.072
+#: drop and stayed ``ok``.
 CARO_KANN_FEN = "rnbqkb1r/pp2pppp/2p2N2/8/3P4/8/PPP2PPP/R1BQKBNR b KQkq - 0 5"
 LEAVE_THE_PAWN = "g7f6"
 
 #: The same opening with the quiet mainline move as the leak: 2.Nf3 measured
-#: costs 49 centipawns of the engine's line, the smallest leak this file could
-#: find that is still outside the 30 cp book band.
+#: costs 49 centipawns of the engine's line (51 on the 2026-10-02
+#: re-measurement), the smallest leak this file could find that is still outside
+#: the 30 cp book band. It sits within a centipawn or two of the ruled 50 cp
+#: inaccuracy line - where the superseded 2026-06-05 thresholds put it at about
+#: 72 cp - so the test that uses it checks the class against the band rather than
+#: against a fixed label.
 QUIET_LEAK_FEN = ITALIAN_FEN
 QUIET_LEAK_MOVE = "g1f3"
+
+#: 3.Bb5, the Ruy Lopez, in the same position: measured 130 centipawns of loss
+#: against the engine's line, identical across three repeats and after a warm
+#: transposition table on this host. It is a real mistake-band fixture rather than
+#: a synthetic one, and a revealing one: 130 cp is a move any player would call
+#: reasonable, which is the whole point of the ruled bands over the win-probability
+#: scale that called the same 130 cp an inaccuracy (its mistake line was ~159 cp).
+MISTAKE_LEAK_MOVE = "c4b5"
 
 #: White to move, Qd8# is the only mate in one. Both sides keep a queen, so the
 #: position is level apart from the mate - which is what makes the mate worth a
@@ -209,9 +245,9 @@ def test_real_quiet_best_move_is_ok(engine: EngineService) -> None:
     "Costs nothing" is a scale, not an identity. The engine scores a position by
     the value of its own best line at that depth, and the position *after* that
     line is searched independently, so the two can differ by a few centipawns -
-    measured 11 cp for 3.Nc3 in the Italian, a 0.011 win-probability drop. What has
-    to hold is that the move is nowhere near the inaccuracy line, and that the
-    clamp at zero is what keeps an improvement from being reported as a gain.
+    measured 11 cp for 3.Nc3 in the Italian. What has to hold is that the move is
+    nowhere near the 50 centipawn inaccuracy line, and that the clamp at zero is
+    what keeps an improvement from being reported as a gain.
     """
     before = engine.analyse(ITALIAN_FEN)
     assert before.best_move is not None
@@ -222,8 +258,9 @@ def test_real_quiet_best_move_is_ok(engine: EngineService) -> None:
     severity = move_severity(before, after_evaluation, "white")
 
     assert severity.klass == OK
-    assert severity.winprob_drop < INACCURACY_DROP, (
-        f"the engine's own best move cost {severity.winprob_drop:.3f} of win probability"
+    assert severity.cp_loss < INACCURACY_CP, (
+        f"the engine's own best move cost {severity.cp_loss} cp, at or above the "
+        f"{INACCURACY_CP} cp inaccuracy line"
     )
     assert severity.winprob_drop == pytest.approx(
         as_player(before, chess.WHITE) - as_player(after_evaluation, chess.WHITE), abs=1e-9
@@ -271,8 +308,8 @@ def test_real_black_player_improving_move_is_not_a_drop(engine: EngineService) -
     The measured POV trap: on a black-to-move board ``score.relative`` is ``+38``
     where ``score.white()`` is ``-38``, so a run that read the relative score
     would report this move as a 76 centipawn loss for the player who improved.
-    Measured 2 centipawns and a 0.002 drop here, which is the engine's own
-    noise (see test_real_quiet_best_move_is_ok), nowhere near a leak.
+    Measured 2 centipawns here, which is the engine's own noise (see
+    test_real_quiet_best_move_is_ok), nowhere near the 50 centipawn line.
     """
     before = engine.analyse(CARO_KANN_FEN)
     assert before.best_move is not None
@@ -283,7 +320,7 @@ def test_real_black_player_improving_move_is_not_a_drop(engine: EngineService) -
     severity = move_severity(before, after_evaluation, "black")
 
     assert severity.klass == OK
-    assert severity.winprob_drop < INACCURACY_DROP
+    assert severity.cp_loss < INACCURACY_CP
     assert severity.cp_loss <= 20, (
         f"the engine's own move for black read as a {severity.cp_loss} cp loss"
     )
@@ -304,21 +341,24 @@ def test_real_black_player_improving_move_is_not_a_drop(engine: EngineService) -
 # -- the small habitual leak, and what it is worth ---------------------------
 
 
-def test_real_habitual_leak_is_a_book_flag_but_not_a_severity_event(engine: EngineService) -> None:
-    """A habitual small leak leaves the book band and still classifies ``ok``.
+def test_real_habitual_leak_is_a_book_flag_and_its_class_is_the_ruled_band(
+    engine: EngineService,
+) -> None:
+    """A habitual small leak leaves the book band; its class is the band's answer.
 
-    1.e4 e5 2.Bc4 Nf6, white to move: the engine plays 3.Bb5 (measured +2 for
+    1.e4 e5 2.Bc4 Nf6, white to move: the engine plays 3.Nc3 (measured +2 for
     white), and the mainline 2.Nf3 leaves the position at -47 - a 49 centipawn
-    leak, outside the 30 cp book band and worth a 0.049 win-probability drop,
-    below the 0.07 inaccuracy line. This is the behaviour the product is built
+    leak, outside the 30 cp book band. This is the behaviour the product is built
     on: recurring small deviations are habitual leaks worth surfacing.
 
-    Open question Q3 on the release bead is exactly whether that is the scale the
-    operator wants, and this file is the evidence either way. With
-    ``win_prob_k = 0.004`` the inaccuracy line sits at about 72 centipawns, so
-    the 73 cp leak the book trigger flags in test_book_real.py already classifies
-    as an inaccuracy. If the answer to Q3 is the conventional centipawn bands,
-    this class becomes ``inaccuracy`` and nothing structural changes.
+    What the class *is* depends on the operator's 2026-10-02 ruling and on the
+    number the engine actually returns, and this fixture sits on the line: 49 cp
+    is measured one centipawn below the 50 cp inaccuracy band, where the
+    superseded 2026-06-05 win-probability thresholds put it at about 72 cp. So
+    the assertion is the class the ruled bands give the measured loss, read
+    against :func:`band_of` in this file rather than against ``severity.py``'s own
+    constants. Hard-coding "ok" here would assert a coin flip: a real engine's
+    figure for a position moves by a few centipawns, and 50 is an inaccuracy.
     """
     before = engine.analyse(QUIET_LEAK_FEN)
     after = play(QUIET_LEAK_FEN, QUIET_LEAK_MOVE)
@@ -333,12 +373,92 @@ def test_real_habitual_leak_is_a_book_flag_but_not_a_severity_event(engine: Engi
     severity = move_severity(before, after_evaluation, "white")
 
     assert severity.cp_loss == gap
-    assert severity.klass in (OK, INACCURACY)
-    assert severity.klass == OK, (
-        "with win_prob_k = 0.004 a 49 cp error is below the 0.07 inaccuracy line; "
-        f"it classified {severity.klass!r} with a drop of {severity.winprob_drop:.3f}"
+    assert severity.klass == band_of(gap), (
+        f"a {gap} cp leak classified {severity.klass!r}; the ruled bands give "
+        f"{band_of(gap)!r} below, 50 is an inaccuracy, 100 a mistake"
+    )
+    assert severity.klass in (OK, INACCURACY), (
+        f"the fixture is a small leak, so the band can only answer {OK!r} or "
+        f"{INACCURACY!r}, not {severity.klass!r}"
     )
     assert severity.winprob_drop == pytest.approx(0.049, abs=0.015)
+
+
+def test_real_engine_classes_follow_the_ruled_centipawn_bands(engine: EngineService) -> None:
+    """Every real position in this file is classified by its own centipawn loss.
+
+    The bands are checked against the real engine's numbers at the release's
+    depth rather than against synthetic ones: a hanging queen is 900+ centipowns
+    of real loss, the engine's own best move is a handful, and the two small leaks
+    sit either side of the inaccuracy line. :func:`band_of` is this file's own
+    copy of the operator's 2026-10-02 rule, so the assertion cannot be satisfied
+    by a ``severity.py`` that classifies the way it likes.
+
+    The mate positions are not in the table: giving up a mate is a blunder by
+    itself, with no centipawn loss to read, and the two tests above cover that
+    case directly.
+    """
+    cases = [
+        (ITALIAN_FEN, HANG_THE_QUEEN, "white"),
+        (TWO_KNIGHTS_FEN, HANG_THE_KNIGHT, "black"),
+        (HANG_THE_QUEEN_BLACK_FEN, HANG_THE_QUEEN_BLACK, "black"),
+        (CARO_KANN_FEN, LEAVE_THE_PAWN, "black"),
+        (ITALIAN_FEN, MISTAKE_LEAK_MOVE, "white"),
+        (QUIET_LEAK_FEN, QUIET_LEAK_MOVE, "white"),
+    ]
+
+    seen: set[str] = set()
+    for fen, uci, color in cases:
+        before = engine.analyse(fen)
+        after = play(fen, uci)
+        severity = move_severity(before, engine.analyse(after.fen()), color)
+        seen.add(severity.klass)
+
+        assert severity.klass == band_of(severity.cp_loss), (
+            f"{san_of(fen, uci)} costs {severity.cp_loss} cp and classified "
+            f"{severity.klass!r}; the ruled bands give {band_of(severity.cp_loss)!r}"
+        )
+
+    # The engine's own best move in two of the same positions, for the ``ok`` end
+    # of the table: the best move in a position the fixture already scores as an
+    # inaccuracy has to stay ``ok``, or the band would be reading something other
+    # than the player's error.
+    for fen, color in ((ITALIAN_FEN, "white"), (CARO_KANN_FEN, "black")):
+        before = engine.analyse(fen)
+        assert before.best_move is not None
+        severity = move_severity(before, engine.analyse(play(fen, before.best_move).fen()), color)
+        seen.add(severity.klass)
+        assert severity.klass == band_of(severity.cp_loss) == OK
+
+    assert len(seen) >= 2, f"the fixtures must cover more than one class, saw {seen}"
+    assert {BLUNDER, MISTAKE, INACCURACY, OK} <= seen, f"the table missed a class, saw {seen}"
+
+
+def test_a_real_mistake_band_error_is_a_mistake(engine: EngineService) -> None:
+    """3.Bb5 in the Italian costs 130 centipawns and is classified ``mistake``.
+
+    The middle of the ruled bands, on a real engine's own numbers: the losing a
+    piece fixture above is far past 200 cp, and the best-move fixtures are far
+    below 50, so without this the mistake band would only ever be pinned against
+    synthetic evaluations.
+
+    It is also the clearest statement of what the operator's ruling changed. The
+    same 130 centipawns is a 0.127 win-probability drop, which on the superseded
+    2026-06-05 scale is an *inaccuracy* (that scale needed about 159 cp for a
+    mistake). The move is the same move either way; the label now matches what a
+    chess player would call it.
+    """
+    before = engine.analyse(ITALIAN_FEN)
+    after = play(ITALIAN_FEN, MISTAKE_LEAK_MOVE)
+    severity = move_severity(before, engine.analyse(after.fen()), "white")
+
+    assert san_of(ITALIAN_FEN, MISTAKE_LEAK_MOVE) == "Bb5"
+    assert severity.klass == MISTAKE, (
+        f"measured {severity.cp_loss} cp of loss, which the ruled bands give "
+        f"{band_of(severity.cp_loss)!r}"
+    )
+    assert severity.klass == band_of(severity.cp_loss)
+    assert 0.0 <= severity.winprob_drop <= 1.0, "the report's Win% lost is still computed"
 
 
 def test_the_pieces_of_a_drop_add_up(engine: EngineService) -> None:
@@ -410,6 +530,11 @@ def test_real_mate_score_scores_as_a_whole_win(engine: EngineService) -> None:
     The mirror of the line above: from the same mating position, a quiet move
     instead of Qd8# throws the whole pawn of win probability away, not just the
     centipawn gap.
+
+    The class here is the mate rule's verdict rather than the centipawn bands'
+    (measured 0 cp of loss after Qh5 - a mate score has no centipawn value, so
+    the bands alone would read this as ``ok``). That is the one case the ruled
+    bands cannot reach, and it is a real engine's answer rather than a fixture's.
     """
     before = engine.analyse(MATE_IN_ONE_FEN)
     assert before.mate == 1
@@ -431,4 +556,7 @@ def test_real_mate_score_scores_as_a_whole_win(engine: EngineService) -> None:
 
     assert severity.winprob_drop == pytest.approx(1.0 - as_player(after_evaluation, chess.WHITE))
     assert severity.winprob_drop >= 0.45
+    assert severity.cp_loss < INACCURACY_CP, (
+        f"the fixture leaves no centipawn loss to read, measured {severity.cp_loss}"
+    )
     assert severity.klass == BLUNDER

@@ -6,17 +6,17 @@ colour values rather than a stand-in, because the sign rule is the bug the PRD
 names: an engine score is always *white's* point of view, and converting it to
 the player's happens exactly once, in :func:`to_my_pov`.
 
-Thresholds are the operator's written values (0.07 / 0.15 / 0.30 win-probability
-drop at ``win_prob_k = 0.004``) held as named constants, because open question Q3
-on the release bead asks whether the conventional centipawn bands (50/100/200)
-should replace them. If the answer is "centipawns", these constants and the tests
-that pin them change; nothing structural does. :func:`test_scale_is_the_operators_scale`
-records what the current scale means in centipawns.
+The class boundaries are **centipawn** bands - 50 / 100 / 200, ``ok`` below the
+first - ruled by the operator on 2026-10-02. They supersede the operator's
+2026-06-05 win-probability thresholds (0.07 / 0.15 / 0.30 at
+``win_prob_k = 0.004``), which on the real curve meant roughly 70 / 155 / 347 cp
+and so called almost nothing a mistake. Win probability is still computed, still
+carried on :class:`Severity` and still shown by the report; it is a display
+figure now, not the classifier, which is why the tests below pin the bands in
+centipawns and pin ``k``'s effect on the *drop* separately from the class.
 """
 
 from __future__ import annotations
-
-import math
 
 import chess
 import chess.engine as ce
@@ -26,13 +26,14 @@ from src.chessleak.config import DEFAULT_WIN_PROB_K, Config
 from src.chessleak.engine import EvalResult
 from src.chessleak.severity import (
     BLUNDER,
-    BLUNDER_DROP,
+    BLUNDER_CP,
     INACCURACY,
-    INACCURACY_DROP,
+    INACCURACY_CP,
     MISTAKE,
-    MISTAKE_DROP,
+    MISTAKE_CP,
     OK,
     Severity,
+    classify_cp_loss,
     cp_to_winprob,
     move_severity,
     to_my_pov,
@@ -53,15 +54,15 @@ def eval_of_cp(cp: int, *, best_move: str | None = "g1f3", mate: int | None = No
     return EvalResult(cp=cp, mate=mate, best_move=best_move, depth=DEPTH)
 
 
-def cp_for_drop(drop: float, k: float = DEFAULT_WIN_PROB_K) -> float:
-    """The centipawn value whose win probability is ``drop`` below an even game.
+def loss_of_cp(cp_loss: int) -> Severity:
+    """A severity for a move that gave up exactly ``cp_loss`` centipowns.
 
-    An even position (``cp = 0``) wins with probability 0.5, so the value wanted
-    is the logistic inverse of ``0.5 - drop``. Used to land test evaluations on a
-    named boundary without hard-coding a number the engine has to reproduce.
+    The loss is built the way ``engine.py`` produces it - the position before the
+    move is even and the position after it is ``cp_loss`` down - so the tests
+    below read as a table of centipawn loss against the class it earns, without
+    repeating that pair of evaluations at every line.
     """
-    target = 0.5 - drop
-    return math.log(target / (1.0 - target)) / k
+    return move_severity(eval_of_cp(0), eval_of_cp(-cp_loss), chess.WHITE)
 
 
 # -- the curve ---------------------------------------------------------------
@@ -161,56 +162,97 @@ def test_to_my_pov_leaves_a_finished_position_alone() -> None:
 
 # -- the classes -------------------------------------------------------------
 
+#: The operator's ruling of 2026-10-02, written out as centipawns against the
+#: class each one earns: the band is inclusive at the class it opens, so 50 is
+#: already an inaccuracy and 200 is already a blunder.
+RULED_BANDS = [
+    (0, OK),
+    (1, OK),
+    (49, OK),
+    (50, INACCURACY),
+    (51, INACCURACY),
+    (99, INACCURACY),
+    (100, MISTAKE),
+    (101, MISTAKE),
+    (199, MISTAKE),
+    (200, BLUNDER),
+    (201, BLUNDER),
+    (900, BLUNDER),
+]
 
-def test_classification_thresholds() -> None:
-    """A drop of 0.07 is an inaccuracy, 0.15 a mistake, 0.30 a blunder.
 
-    Each boundary is probed from both sides at one centipawn resolution, so the
-    test states which class a value on the boundary gets rather than how close
-    to it a sample happened to land.
+@pytest.mark.parametrize(("cp_loss", "expected"), RULED_BANDS)
+def test_every_centipawn_loss_earns_the_ruled_class(cp_loss: int, expected: str) -> None:
+    """A move is classified by its centipawn loss, at the exact edges.
+
+    Both edges of every band are in the table - 49/50, 99/100, 199/200 - because
+    a boundary probed from one side only does not say which class owns the value
+    sitting on it. The three numbers are the operator's, not derived: they are
+    the bands a chess player recognises when they read their own report, which
+    is why the ruled 50/100/200 replaced the earlier win-probability thresholds
+    (0.07/0.15/0.30 at ``k = 0.004``, about 70/155/347 cp on the real curve).
     """
-    thresholds = [
-        (INACCURACY_DROP, INACCURACY, OK),
-        (MISTAKE_DROP, MISTAKE, INACCURACY),
-        (BLUNDER_DROP, BLUNDER, MISTAKE),
-    ]
+    severity = loss_of_cp(cp_loss)
 
-    for threshold, at_threshold, below_threshold in thresholds:
-        boundary = cp_for_drop(threshold)
-        assert boundary != math.floor(boundary), (
-            f"{threshold} lands on a whole centipawn; the probe below would "
-            f"compare a value with itself"
-        )
-        worse = math.floor(boundary)  # further from even, so a larger drop
-        better = math.ceil(boundary)
-
-        assert move_severity(eval_of_cp(0), eval_of_cp(worse), chess.WHITE).klass == at_threshold
-        assert (
-            move_severity(eval_of_cp(0), eval_of_cp(better), chess.WHITE).klass == below_threshold
-        )
+    assert severity.cp_loss == cp_loss, "the loss is the figure the band is read from"
+    assert severity.klass == expected, (
+        f"{cp_loss} cp classified {severity.klass!r}, not {expected!r} "
+        f"(drop {severity.winprob_drop:.3f})"
+    )
 
 
-def test_scale_is_the_operators_scale() -> None:
-    """What the operator's written thresholds mean in centipawns, for Q3.
+def test_the_constants_are_the_ruled_centipawns() -> None:
+    """The named constants are 50/100/200, so a caller can read the band itself."""
+    assert (INACCURACY_CP, MISTAKE_CP, BLUNDER_CP) == (50, 100, 200)
 
-    With ``win_prob_k = 0.004``, a blunder needs roughly a 3.5-pawn loss and a
-    100 centipawn error is an inaccuracy. That is the finding open question Q3 on
-    the release bead asks about; this test is the evidence, so changing a
-    threshold forces a decision here rather than a silent drift.
+
+def test_a_negative_loss_is_ok_because_an_improvement_is_not_a_mistake() -> None:
+    """A centipawn *gain* is never a mistake, in any band and at any size.
+
+    ``move_severity`` clamps the loss at zero, so a real run cannot reach this;
+    the clamp is a guard on the average ``cluster.py`` builds, and a caller that
+    classifies its own figure should get the same answer from the same rule.
     """
-    scale = {
-        50: OK,
-        100: INACCURACY,
-        200: MISTAKE,
-        350: BLUNDER,
-    }
+    for cp_loss in (-1, -30, -200, -10_000):
+        classified = classify_cp_loss(cp_loss)
+        assert classified == OK, f"{cp_loss} cp classified {classified!r}"
 
-    for centipawns, expected in scale.items():
-        severity = move_severity(eval_of_cp(0), eval_of_cp(-centipawns), chess.WHITE)
-        assert severity.klass == expected, (
-            f"{centipawns} cp classified {severity.klass!r}, not {expected!r} "
-            f"(drop {severity.winprob_drop:.3f})"
-        )
+
+def test_classify_cp_loss_is_the_whole_of_the_band_rule() -> None:
+    """The boundary function reads centipawns, with nothing else in it."""
+    assert classify_cp_loss(0) == OK
+    assert classify_cp_loss(INACCURACY_CP - 1) == OK
+    assert classify_cp_loss(INACCURACY_CP) == INACCURACY
+    assert classify_cp_loss(MISTAKE_CP) == MISTAKE
+    assert classify_cp_loss(BLUNDER_CP) == BLUNDER
+    assert classify_cp_loss(50_000) == BLUNDER
+
+
+def test_a_hundred_centipawn_loss_is_a_mistake() -> None:
+    """The specific claim the ruling makes about a number players know.
+
+    Under the superseded win-probability thresholds a 100 centipawn error was an
+    *inaccuracy* (about 159 cp was the mistake line) and a blunder needed roughly
+    347 cp, so real games reported almost nothing as a mistake. 30 cp is still
+    ``ok``, which is what the book trigger exists to surface: a small habitual
+    leak is a deviation, not a severity event.
+    """
+    assert loss_of_cp(100).klass == MISTAKE
+    assert loss_of_cp(30).klass == OK
+
+
+def test_the_win_probability_loss_is_still_computed_alongside_the_class() -> None:
+    """The report still shows "Win% lost", and it is still the loss curve.
+
+    The ruling moved the *classification* into centipawns; the win-probability
+    figure is unchanged and still carried, because the report shows it and
+    ``Config.win_prob_k`` is still what shapes it.
+    """
+    severity = loss_of_cp(120)
+
+    assert severity.winprob_drop == pytest.approx(cp_to_winprob(0) - cp_to_winprob(-120))
+    assert severity.klass == MISTAKE
+    assert 0.0 <= severity.winprob_drop <= 1.0
 
 
 def test_severity_reports_the_centipawn_loss_and_the_drop() -> None:
@@ -327,6 +369,70 @@ def test_mated_scores_as_whole_a_win_of_zero() -> None:
     assert severity.klass == BLUNDER
 
 
+# -- the mate cases the centipawn bands cannot express -----------------------
+
+
+def test_walking_away_from_a_mate_is_a_blunder_at_zero_centipawns() -> None:
+    """A mate score has no centipawn value, so the bands alone would call this ``ok``.
+
+    This is the one case the operator's centipawn ruling cannot reach on its own:
+    the move gives up a proved mate in one, ``cp_loss`` is 0 because neither
+    evaluation carries a centipawn figure, and 0 cp is ``ok``. Giving up the
+    whole game is a blunder by itself, in the same spirit as the terminal
+    short-circuit.
+    """
+    mate_in_one = EvalResult(cp=None, mate=1, best_move="d1d8", depth=DEPTH)
+
+    severity = move_severity(mate_in_one, eval_of_cp(30), chess.WHITE)
+
+    assert severity.cp_loss == 0
+    assert severity.klass == BLUNDER
+    assert severity.winprob_drop == pytest.approx(1.0 - cp_to_winprob(30))
+
+
+def test_keeping_the_mate_is_never_a_blunder_however_long_it_takes() -> None:
+    """Mate in four after mate in five is still a win; the distance is not read.
+
+    The design record decides that distance deliberately: mate in 1 and mate in
+    12 are both a win, so a player who walks a forced mate closer to the move is
+    not punished for it. The rule watches for the mate appearing or disappearing,
+    never for its size.
+    """
+    before = EvalResult(cp=None, mate=5, best_move="d1d8", depth=DEPTH)
+    after = EvalResult(cp=None, mate=4, best_move="d1d8", depth=DEPTH)
+
+    severity = move_severity(before, after, chess.WHITE)
+
+    assert severity.klass == OK
+    assert severity.cp_loss == 0
+
+
+def test_walking_into_mate_from_an_ordinary_position_is_a_blunder() -> None:
+    """The mirror of walking away from one: mate against the player after the move."""
+    mated = EvalResult(cp=None, mate=-1, best_move=None, depth=DEPTH)
+
+    severity = move_severity(eval_of_cp(30), mated, chess.WHITE)
+
+    assert severity.klass == BLUNDER
+
+
+def test_a_player_already_being_mated_has_not_lost_anything_new() -> None:
+    """Mated in two becoming mated in one is not a mistake the player made.
+
+    The engine's distance preference cuts both ways: the player was already lost
+    before the move, so the move cost them nothing the centipawn bands could
+    see, and reporting it as a blunder would put a position in the ranking that
+    the player could not have saved.
+    """
+    before = EvalResult(cp=None, mate=-2, best_move="a7a6", depth=DEPTH)
+    after = EvalResult(cp=None, mate=-1, best_move="a7a6", depth=DEPTH)
+
+    severity = move_severity(before, after, chess.WHITE)
+
+    assert severity.klass == OK
+    assert severity.winprob_drop == pytest.approx(0.0)
+
+
 def test_a_terminal_position_after_the_move_is_a_blunder() -> None:
     """A finished position short-circuits without needing a best move.
 
@@ -358,29 +464,33 @@ def test_a_terminal_position_still_needs_no_best_move_in_the_first_argument() ->
 # -- configuration -----------------------------------------------------------
 
 
-def test_the_slope_is_configurable_without_touching_the_thresholds() -> None:
-    """``k`` moves the curve; the class boundaries stay where the operator put them.
+def test_the_slope_moves_the_displayed_drop_and_not_the_class() -> None:
+    """``k`` still shapes the win-probability figure; the class comes from centipawns.
 
-    The same centipawn loss reads as a bigger fall on a steeper curve, which is
-    how Q3's "keep the win-probability thresholds and lower ``k``" answer would be
-    applied: these constants do not move, ``Config.win_prob_k`` does.
+    Under the superseded win-probability thresholds the class of a move was a
+    function of ``k``, because the thresholds were themselves drops. Since the
+    operator's 2026-10-02 ruling the two are independent: a steeper curve makes
+    the same error look bigger in the report without reclassifying it, which is
+    the display-only role ``Config.win_prob_k`` now has.
     """
-    hundred_cp = eval_of_cp(-100)
+    mistake = eval_of_cp(-150)
 
-    at_default = move_severity(eval_of_cp(0), hundred_cp, chess.WHITE)
-    at_four_times = move_severity(eval_of_cp(0), hundred_cp, chess.WHITE, k=0.016)
+    at_default = move_severity(eval_of_cp(0), mistake, chess.WHITE)
+    at_four_times = move_severity(eval_of_cp(0), mistake, chess.WHITE, k=0.016)
 
-    assert at_default.klass == INACCURACY
-    assert at_four_times.klass == BLUNDER
+    assert at_default.klass == at_four_times.klass == MISTAKE
     assert at_four_times.winprob_drop > at_default.winprob_drop
+    assert at_default.winprob_drop == pytest.approx(cp_to_winprob(0) - cp_to_winprob(-150))
+    assert at_four_times.winprob_drop == pytest.approx(
+        cp_to_winprob(0, k=0.016) - cp_to_winprob(-150, k=0.016)
+    )
     assert Config().win_prob_k == DEFAULT_WIN_PROB_K
 
-    # The centipawn value that sits on the boundary moves with the slope, so the
-    # class a run reports does not drift when only k changes.
+    # A centipawn loss in the same band classifies the same way on either curve.
     for k in (DEFAULT_WIN_PROB_K, 0.016):
-        boundary = round(cp_for_drop(BLUNDER_DROP, k=k))
-        at_boundary = move_severity(eval_of_cp(0), eval_of_cp(boundary), chess.WHITE, k=k)
-        assert at_boundary.klass == BLUNDER
+        for cp_loss, expected in RULED_BANDS:
+            severity = move_severity(eval_of_cp(0), eval_of_cp(-cp_loss), chess.WHITE, k=k)
+            assert severity.klass == expected, f"{cp_loss} cp at k={k}"
 
 
 # -- the real python-chess score types ---------------------------------------
