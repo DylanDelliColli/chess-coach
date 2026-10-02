@@ -247,9 +247,7 @@ def test_a_position_scores_the_same_in_either_search_order(
         assert forward[fen].cp is not None, f"expected a centipawn score for {fen}"
 
 
-def test_a_position_scores_the_same_in_a_fresh_process(
-    engine_path: str, tmp_path: Path
-) -> None:
+def test_a_position_scores_the_same_in_a_fresh_process(engine_path: str, tmp_path: Path) -> None:
     """Two runs over the same positions agree, which is what the cache assumes.
 
     The eval cache freezes the first run's answer and replays it for the next

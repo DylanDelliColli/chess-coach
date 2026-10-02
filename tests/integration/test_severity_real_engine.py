@@ -417,8 +417,14 @@ def test_real_mate_score_scores_as_a_whole_win(engine: EngineService) -> None:
     walked_away = play(MATE_IN_ONE_FEN, "d1h5")  # Qh5: legal, and gives up the mate
     after_evaluation = engine.analyse(walked_away.fen())
     assert after_evaluation.mate is None, "the fixture only works if the mate is gone"
-    assert abs(after_evaluation.cp or 0) <= 20, (
-        f"the fixture needs Qh5 to leave the position level, measured {after_evaluation.cp}"
+    # Qh5 walks away from a mate in one and leaves an ordinary, roughly level
+    # position. The band is 40 cp rather than a tight one: before the engine sent
+    # `ucinewgame` between positions, this number came out of whatever was left in
+    # the transposition table by the mate search above, so a tight bound only held
+    # by accident. What this test is about is that *giving up the mate* costs the
+    # whole of the win probability, which the assertions below pin.
+    assert abs(after_evaluation.cp or 0) <= 40, (
+        f"the fixture needs Qh5 to leave the position roughly level, measured {after_evaluation.cp}"
     )
 
     severity = move_severity(before, after_evaluation, "white")

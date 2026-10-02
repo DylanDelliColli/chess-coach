@@ -282,7 +282,9 @@ def test_engine_options_default_and_override(
         assert custom.options == {"Threads": "1", "Hash": "32"}
 
 
-def test_default_options_are_single_threaded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_default_options_are_single_threaded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """One thread by default, because a multi-threaded search is not reproducible.
 
     Measured on this host at ``Threads=2``: the same position at depth 18 came
