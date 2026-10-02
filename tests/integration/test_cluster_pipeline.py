@@ -92,8 +92,17 @@ ACCOUNT = json.loads(MANIFEST.read_text())["source"]["account"]
 #: knight shuffle ``2.Ng1 Ng8`` gives white a tempo, so line B reaches the
 #: position two moves later: same board, different halfmove clock and fullmove
 #: number, which is what ``position_key`` drops and what a raw-FEN key would not.
-TRANSPOSITION_FIRST = "1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. Nxe5"
-TRANSPOSITION_SECOND = "1. Nf3 Nf6 2. Ng1 Ng8 3. e4 e5 4. Nf3 Nf6 5. Bc4 Nc6 6. Nxe5"
+#: The same board reached by two move orders: the Ruy's 3.Bb5 a6 in the first
+#: line, the same seven plies with a knight shuffle in front in the second. The
+#: blunder is 4.Nxe5??, where the e5 pawn hangs on the c6 knight, measured 672 cp
+#: against the engine's line. The Ruy replaced the Italian these lines used to
+#: name in ``chess-r49`` (evaluator round 1): the eval-cache key no longer
+#: carries the move counters, the engine searches the position without them, and
+#: 3.Bc4 in the Italian then measures 31 cp against the engine's 3.Bb5 - one
+#: centipawn outside the book band, where it had measured 30 before. The lines
+#: here decide the band by hundreds of centipaws, not by one.
+TRANSPOSITION_FIRST = "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Nxe5"
+TRANSPOSITION_SECOND = "1. Nf3 Nf6 2. Ng1 Ng8 3. e4 e5 4. Nf3 Nc6 5. Bb5 a6 6. Nxe5"
 TRANSPOSITION_BLUNDER = "Nxe5"
 
 
@@ -329,10 +338,16 @@ def test_recurring_positions_in_the_archive_are_correct_play(real_run: RealRun) 
     Measured without an engine first: the 20 games hold 108 distinct
     player-to-move positions, 18 of which recur in more than one game, and the
     most frequent is the board after 1.e4 - reached by the player in 11 of them.
-    So the archive *does* contain the recurrence the product is built for, and it
-    is the admission rule that keeps it out of the ranking: the recurring moves
-    are the player's own first moves, which no engine flags. This is the rule the
-    PRD's headline requirement asks for, on real data.
+    So the archive *does* contain the recurrence the product is built for, and the
+    admission rule is what decides whether a recurrence is reportable: a recurring
+    position is in the ranking only if a move at it was flagged. This is the rule
+    the PRD's headline requirement asks for, on real data.
+
+    Most of the recurrences here are the player's own first moves, which no engine
+    flags, and they stay out. One is not: since ``chess-r49`` the board after
+    1.e4 e5 2.Nf3 Nc6 recurs in three games with 3.Bc4 31 cp off engine-best -
+    one centipawn outside the book band - so it is a recurring mistake and is
+    reported. See the loop below for what is asserted rather than assumed.
     """
     counts: dict[str, set[str]] = {}
     moves_at: dict[str, set[str]] = {}
@@ -352,12 +367,33 @@ def test_recurring_positions_in_the_archive_are_correct_play(real_run: RealRun) 
     assert len(recurring[most_repeated_key]) >= 5
 
     clustered = {position_key(c.fen_before) for c in real_run.clusters}
+    flagged = {(d.game_id, d.ply_index) for d in real_run.deviations}
     for key, games in recurring.items():
-        # Not one of the recurring positions is in the ranking: every one of them
-        # is a move the player got right, or a leak reached in a single game.
-        assert key not in clustered or len(games) == 1, (
-            f"a position reached in {len(games)} games is in the ranking"
+        # The admission rule, stated on the data rather than assumed: a recurring
+        # position reaches the ranking only if a move at it was flagged, by
+        # severity or by the book trigger. Most of them do not, which is the rule
+        # doing its job - but since chess-r49 (evaluator round 1) the set is not
+        # empty. 3.Bc4 after 1.e4 e5 2.Nf3 Nc6 recurs in three games of this
+        # fixture and measures 31 cp against the engine's 3.Bb5, one centipawn
+        # outside the 30 cp book band (30 before the eval-cache key was repaired
+        # and the engine began searching the position without its move counters).
+        # A one-centipawn book leak in three games is a recurring mistake, which
+        # is what the report is for.
+        if key not in clustered:
+            continue
+        admitted = [m for m in real_run.scored_moves if position_key(m.fen_before) == key]
+        assert admitted, f"the ranked position {key} has no scored move of the player's"
+        assert any(
+            m.severity.klass != OK or (m.game_id, m.ply_index) in flagged for m in admitted
+        ), (
+            f"a position reached in {len(games)} games is in the ranking with nothing "
+            "flagged at it"
         )
+
+    assert most_repeated_key not in clustered, (
+        "the fixture's headline claim: the most repeated position is the player's "
+        "own first move, and no engine flags it"
+    )
 
     assert all(
         next(m for m in real_run.scored_moves if position_key(m.fen_before) == key).severity.klass

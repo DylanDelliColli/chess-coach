@@ -14,7 +14,10 @@ carry the release:
   sign-flipped on every black ply, which is the failure the PRD names.
 * **The cache is keyed by position, not by FEN string.** ``position_key`` drops
   the halfmove clock and fullmove number, so the same board reached by
-  transposition at a different move count is one entry, not two.
+  transposition at a different move count is one entry, not two - and the engine is
+  searched on that same counter-free position, because Stockfish takes its
+  ``rule50`` from the FEN it is handed and a different clock is a different search
+  (see :func:`_search_position`).
 * **A score is a property of its position, not of what was searched before
   it.** Stockfish carries its transposition table across searches, and
   python-chess's ``SimpleEngine`` sends no ``ucinewgame``, so an unreset engine
@@ -210,8 +213,10 @@ class EngineService:
 
         ``fen`` is a full FEN as ``board.fen()`` writes it; the cache key is its
         ``position_key``, so move counters do not split one position into two
-        entries. A malformed FEN raises ``ValueError`` before anything is
-        cached. Raises :class:`EngineError` if the engine answers without a score.
+        entries - and neither do they move the answer, because the search itself
+        is done on the counters cleared (see :func:`_search_position`). A malformed
+        FEN raises ``ValueError`` before anything is cached. Raises
+        :class:`EngineError` if the engine answers without a score.
 
         Two calls for one position and depth answer identically, in one process
         or two, and whether or not a hundred other positions were searched around
@@ -241,6 +246,7 @@ class EngineService:
             return terminal
 
         engine = self._engine_handle()
+        board = _search_position(board)
         # ucinewgame before the search, not after the last one: a stale
         # transposition table is an earlier position's opinion of this one, and
         # the engine answers with it. Both lines go out under self._lock, so no
@@ -316,6 +322,32 @@ class EngineService:
                 " VALUES (?, ?, ?, ?, ?)",
                 (key, self.depth, result.cp, result.mate, result.best_move),
             )
+
+
+def _search_position(board: chess.Board) -> chess.Board:
+    """The position as the engine is asked about it: the key, with no move counters.
+
+    ``position_key`` is the first four FEN fields and Stockfish reads its
+    ``rule50`` out of the halfmove clock, so a board handed over with its counters
+    is a *different search* from the same board reached at another move count:
+    measured on this host at depth 12, one real opening position scored cp
+    43/34/38/30/33/38/37 across halfmove 0/1/2/3/4/10/49, with the best move
+    changing from ``...d6`` to ``...Nxe4`` at halfmove 4. The cache key has always
+    been the position without the counters, so the row it froze held whichever
+    clock arrived first, and a score was a property of a route rather than of a
+    position. Searching the counter-free board makes the promise true instead of
+    merely documented: the board sent to the engine *is* the key, so transposition
+    reuse costs nothing and no cache row can disagree with another.
+
+    An opening window sits nowhere near the fifty-move rule, so clearing the clock
+    is free; and it is cleared here rather than in ``analyse``, after
+    ``_terminal_result`` has read the real clock, so the seventy-five-move rule is
+    still answered from the board.
+    """
+    position = board.copy(stack=False)
+    position.halfmove_clock = 0
+    position.fullmove_number = 1
+    return position
 
 
 def _terminal_result(board: chess.Board, depth: int) -> EvalResult | None:

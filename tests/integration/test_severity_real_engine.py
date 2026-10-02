@@ -497,19 +497,31 @@ def test_the_pieces_of_a_drop_add_up(engine: EngineService) -> None:
 # -- mates and finished positions -------------------------------------------
 
 
-def test_real_terminal_position_after_the_move_is_a_full_blunder(engine: EngineService) -> None:
-    """Mating inside the window is a finished position, and scores as the record says.
+@pytest.mark.parametrize("color", ["white", "black"])
+def test_real_delivered_mate_is_the_win_it_is(engine: EngineService, color: str) -> None:
+    """Mating inside the window is a finished position, and it is the player's win.
 
     The engine answers the position after Qd8# from the board, with no search:
-    ``mate = 0, cp = None`` and no best move. ``move_severity`` short-circuits to
-    a whole pawn of win probability without needing one, which is the frozen
-    contract in the design record.
-    """
-    before = engine.analyse(MATE_IN_ONE_FEN)
-    assert before.mate == 1 and before.best_move == "d1d8"
+    ``mate = 0, cp = None`` and no best move. The side to move in that position is
+    the opponent, so the mate zero is the *player's* mate - the two sides are
+    run through the same assertions, because a delivered mate reads as
+    ``mate = 0`` from either side and that is exactly what used to turn it into a
+    hundred percent loss.
 
-    mated = play(MATE_IN_ONE_FEN, before.best_move or "")
+    The move played is the engine's own best move in both cases, which is what
+    makes this the wrong-way-round verdict rather than a close call: the player
+    found the engine's line and ended the game in it.
+    """
+    fen = MATE_IN_ONE_FEN if color == "white" else chess.Board(MATE_IN_ONE_FEN).mirror().fen()
+
+    before = engine.analyse(fen)
+    assert before.best_move is not None
+    expected_mate = 1 if color == "white" else -1
+    assert before.mate == expected_mate
+
+    mated = play(fen, before.best_move)
     assert mated.is_checkmate()
+    assert mated.turn != chess.Board(fen).turn, "the opponent is the side to move after the move"
     after_evaluation = engine.analyse(mated.fen())
 
     assert (after_evaluation.cp, after_evaluation.mate, after_evaluation.best_move) == (
@@ -518,10 +530,29 @@ def test_real_terminal_position_after_the_move_is_a_full_blunder(engine: EngineS
         None,
     )
 
+    severity = move_severity(before, after_evaluation, color)
+
+    assert severity.cp_loss == 0
+    assert severity.winprob_drop == 0.0
+    assert severity.klass == OK
+
+
+def test_real_a_position_still_ends_the_window_without_a_best_move(engine: EngineService) -> None:
+    """A finish is scored from the board's own answer, with no move to ask for.
+
+    The property the terminal short-circuit was written for, kept on the corrected
+    reading: ``engine.py`` reports ``best_move = None`` for a checkmate and for a
+    draw, and ``move_severity`` scores both without needing one.
+    """
+    before = engine.analyse(MATE_IN_ONE_FEN)
+    mated = play(MATE_IN_ONE_FEN, before.best_move or "")
+    after_evaluation = engine.analyse(mated.fen())
+    assert after_evaluation.best_move is None
+
     severity = move_severity(before, after_evaluation, "white")
 
-    assert severity.winprob_drop == 1.0
-    assert severity.klass == BLUNDER
+    assert severity.winprob_drop < 1.0, "the player delivered this mate, not received it"
+    assert severity.klass != BLUNDER
 
 
 def test_real_mate_score_scores_as_a_whole_win(engine: EngineService) -> None:
@@ -529,7 +560,8 @@ def test_real_mate_score_scores_as_a_whole_win(engine: EngineService) -> None:
 
     The mirror of the line above: from the same mating position, a quiet move
     instead of Qd8# throws the whole pawn of win probability away, not just the
-    centipawn gap.
+    centipawn gap. This is the direction that stays a blunder, and it is the one
+    a report must not lose when the delivered-mate case above is repaired.
 
     The class here is the mate rule's verdict rather than the centipawn bands'
     (measured 0 cp of loss after Qh5 - a mate score has no centipawn value, so

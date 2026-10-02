@@ -308,6 +308,35 @@ def test_top_n_larger_than_the_list_renders_all_of_them(tmp_path: Path) -> None:
     assert "## 1." in text
 
 
+def test_top_n_zero_does_not_deny_the_habits_its_header_names(tmp_path: Path) -> None:
+    """``--top 0`` is a cap on what is rendered, not a claim that nothing recurs.
+
+    The empty-body section is a finding about the run - no position recurred and
+    nothing was played worse than the engine - so it may only be written when that
+    is true. Gating it on the truncated list instead let a capped report deny the
+    habits the header had just counted, which is a report about the display
+    reading as a verdict on the player's openings.
+    """
+    clusters = [make_cluster(composite_score=float(i), eco=f"E{i:02d}") for i in range(6)]
+
+    text = render(tmp_path, clusters, top_n=0)
+
+    assert "top 0 of 6 habits" in text, "the header still states what it capped"
+    assert "No recurring habits" not in text, text
+    assert "Nothing to fix here" not in text, text
+    assert "## 1." not in text, "a zero cap renders no entries"
+    # The run's own figures are still in the report; only the habit list is capped.
+    assert "- **Flagged mistakes:** 6" in text
+
+
+def test_a_zero_cap_over_a_run_with_no_habits_still_says_so(tmp_path: Path) -> None:
+    """The genuinely empty case is unchanged: no habits recurred, and it says so."""
+    text = render(tmp_path, [], top_n=0)
+
+    assert "No recurring habits" in text, text
+    assert "top 0 of 0 habits" in text or "0 habits, by how often" in text, text
+
+
 def test_negative_top_n_is_rejected(tmp_path: Path) -> None:
     """A negative cap is a usage error at the edge, not a silently empty report."""
     with pytest.raises(ValueError, match="top_n"):

@@ -30,9 +30,20 @@ WHITE_MATE_IN_ONE = "7k/6pp/8/8/8/8/5PPP/3Q2K1 w - - 0 1"
 #: Black to move, the mirror image: Qd1# mates.
 BLACK_MATE_IN_ONE = "3q2k1/5ppp/8/8/8/8/6PP/7K b - - 0 1"
 
-#: The start position, and the same position reached with different move counters.
+#: The same position reached with different move counters.
 START_FEN = chess.STARTING_FEN
 START_LATE_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 4 40"
+#: The same board again, reached by a different route: a halfmove clock of 3 and
+#: a fullmove number of 40. Identical first four FEN fields, different rule50.
+START_LATE_CLOCK_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 3 40"
+
+#: A real opening position - 1.e4 e5 2.Nf3 Nf6 3.Nxe4, black to move - measured on
+#: this host at depth 12 with Stockfish 19 at halfmove 0/1/2/3/4/10/49 it came
+#: back as cp 43/34/38/30/33/38/37, and the best move changed from ...d6 to ...Nxe4
+#: at halfmove 4. Stockfish takes rule50 from the FEN, so the clock is part of the
+#: search even though it is not part of the position.
+CLOCK_SENSITIVE_PLACEMENT = "rnbqkb1r/pppp1ppp/5n2/4N3/4P3/8/PPPP1PPP/RNBQKB1R"
+CLOCK_SENSITIVE_DEPTH = 12
 
 #: Deep enough to see a mate in one, shallow enough to keep the suite quick.
 MATE_DEPTH = 10
@@ -167,6 +178,45 @@ def test_transposed_position_is_one_cache_entry(engine_path: str, cache_path: Pa
     with EngineService(engine_path, 12, cache_path) as engine:
         first = engine.analyse(START_FEN)
         second = engine.analyse(START_LATE_FEN)
+
+    assert (engine.misses, engine.hits) == (1, 1)
+    assert first == second
+
+
+def test_the_halfmove_clock_is_not_part_of_a_position_s_score(
+    engine_path: str, tmp_path: Path
+) -> None:
+    """One board at two clocks, two cold caches: the same answer, and one cache row.
+
+    Stockfish reads ``rule50`` out of the FEN it is given, so the same board with a
+    different halfmove clock is a different search input - the measurement in
+    ``CLOCK_SENSITIVE_PLACEMENT`` above. The cache key is the position without the
+    counters, so the two are one row; for that row to be worth anything, both
+    clocks have to be asked about the same position. Each service here has its own
+    empty cache, so nothing is replayed and the comparison is between two real
+    searches.
+    """
+    fens = {
+        clock: f"{CLOCK_SENSITIVE_PLACEMENT} b KQkq - {clock} 3"
+        for clock in (0, 3)
+    }
+
+    answers = {}
+    for clock, fen in fens.items():
+        cold = tmp_path / f"evalcache-{clock}.sqlite"
+        with EngineService(engine_path, CLOCK_SENSITIVE_DEPTH, cold) as engine:
+            answers[clock] = engine.analyse(fen)
+            assert (engine.misses, engine.hits) == (1, 0), "each cache here starts empty"
+
+    assert answers[0] == answers[3], (
+        "the same position at a different halfmove clock must score the same way"
+    )
+
+    # And the cache still shares the entry, which is what the key is for.
+    shared = tmp_path / "evalcache-shared.sqlite"
+    with EngineService(engine_path, CLOCK_SENSITIVE_DEPTH, shared) as engine:
+        first = engine.analyse(fens[0])
+        second = engine.analyse(fens[3])
 
     assert (engine.misses, engine.hits) == (1, 1)
     assert first == second

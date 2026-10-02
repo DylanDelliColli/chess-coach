@@ -163,6 +163,11 @@ def position_key(fen: str) -> str:
 
     The en passant square stays in the key even when no capture is available for
     it, because FEN records the double push, not its consequences.
+
+    The key is also what ``engine.py`` *searches*: a board is handed to Stockfish
+    with its halfmove clock and fullmove number cleared, because Stockfish reads
+    ``rule50`` from the FEN and would otherwise answer two different searches for
+    one position. Nothing here derives a second identity for the same board.
     """
     return " ".join(fen.split()[:4])
 

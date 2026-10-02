@@ -43,6 +43,13 @@ pytestmark = pytest.mark.unit
 
 DEPTH = 18
 
+#: What ``engine.py`` answers a checkmated position with, from either side:
+#: ``mate = 0`` because the side to move there is the one that is mated, and no
+#: centipawn value because a finished position has no engine line to read.
+MATED = EvalResult(cp=None, mate=0, best_move=None, depth=DEPTH)
+#: And what it answers a drawn one with: an even position, again with no move in it.
+DRAWN = EvalResult(cp=0, mate=None, best_move=None, depth=DEPTH)
+
 #: A quiet opening evaluation and a hanging-piece one, white's point of view.
 QUIET_WHITE = EvalResult(cp=25, mate=None, best_move="g1f3", depth=DEPTH)
 QUIET_WHITE_BLACK = EvalResult(cp=25, mate=None, best_move="g8f6", depth=DEPTH)
@@ -433,22 +440,84 @@ def test_a_player_already_being_mated_has_not_lost_anything_new() -> None:
     assert severity.winprob_drop == pytest.approx(0.0)
 
 
-def test_a_terminal_position_after_the_move_is_a_blunder() -> None:
-    """A finished position short-circuits without needing a best move.
+@pytest.mark.parametrize("colour", [chess.WHITE, chess.BLACK])
+def test_a_move_that_delivers_mate_is_the_win_it_is(colour: chess.Color) -> None:
+    """``mate = 0`` after the move means the *opponent* was mated, so the player won.
 
-    ``engine.py`` answers checkmate as ``mate = 0, cp = None`` and a draw as
-    ``cp = 0``, and reports ``best_move = None`` in both cases. Scoring it as a
-    whole pawn of win probability keeps the record's frozen contract: the
-    position after the player's move is over, so nothing can be recovered.
+    The position after the player's own move always has the opponent to move, and
+    ``engine.py`` answers a checkmate as ``mate = 0`` from either side because the
+    side to move is the one that is mated - so the value itself cannot say whose
+    win it is, and the short-circuit that read it as a whole pawn of loss read
+    every checkmate the player delivered as the largest error in the window.
+    A player who mates, with the engine's own best move on the board, has lost
+    nothing.
     """
-    checkmated = EvalResult(cp=None, mate=0, best_move=None, depth=DEPTH)
-    drawn = EvalResult(cp=0, mate=None, best_move=None, depth=DEPTH)
+    # A mate score for the player is what the engine says about the position the
+    # move was played from; the board answers the position it reached.
+    mate_for_me = EvalResult(cp=None, mate=1, best_move="d1d8", depth=DEPTH)
+    if colour == chess.BLACK:
+        mate_for_me = EvalResult(cp=None, mate=-1, best_move="d1d8", depth=DEPTH)
 
-    for terminal in (checkmated, drawn):
+    severity = move_severity(mate_for_me, MATED, colour)
+
+    assert severity.cp_loss == 0
+    assert severity.winprob_drop == 0.0
+    assert severity.klass == OK
+
+
+def test_delivering_mate_from_a_won_position_is_not_a_blunder() -> None:
+    """The centipawn gap a mated board leaves behind must not be read as a loss.
+
+    ``mate = 0`` carries no centipawn figure, so a position worth +900 before
+    the move reads as 0 after it - and 900 cp of "loss" is a blunder under the
+    operator's bands. The move was mate: the game is over in the player's favour,
+    which is why the branch reads the finish rather than the arithmetic. A mate in
+    one is not the largest leak in the window.
+    """
+    winning = EvalResult(cp=900, mate=None, best_move="d1d8", depth=DEPTH)
+
+    severity = move_severity(winning, MATED, chess.WHITE)
+
+    assert severity.cp_loss == 0
+    assert severity.winprob_drop == 0.0
+    assert severity.klass == OK
+
+
+def test_a_draw_after_the_move_is_not_a_whole_pawn_of_loss() -> None:
+    """A drawn position is worth half the game, not none of it.
+
+    ``engine.py`` answers stalemate, insufficient material, the seventy-five-move
+    rule and fivefold repetition as ``cp = 0, mate = None, best_move = None``, and
+    a draw handed over from a clear advantage is a real mistake - but it is a
+    mistake of the size the centipawn figure says, not a total loss of the game.
+    """
+    severity = move_severity(eval_of_cp(120), DRAWN, chess.WHITE)
+
+    assert severity.klass == MISTAKE
+    assert severity.cp_loss == 120
+    assert severity.winprob_drop == pytest.approx(cp_to_winprob(120) - cp_to_winprob(0))
+    assert severity.winprob_drop < 0.5
+
+
+def test_a_draw_handed_over_from_nothing_is_not_a_loss() -> None:
+    """A draw taken from an even position costs the player nothing measurable."""
+    severity = move_severity(eval_of_cp(12), DRAWN, chess.WHITE)
+
+    assert severity.klass == OK
+    assert severity.winprob_drop == pytest.approx(cp_to_winprob(12) - cp_to_winprob(0))
+
+
+def test_a_finished_position_after_the_move_still_needs_no_best_move() -> None:
+    """Both finishes are scored without a best move in the second argument.
+
+    This is what the terminal short-circuit was for, and it holds whichever way
+    the position finished: ``engine.py`` reports ``best_move = None`` for a
+    checkmate and for a draw, and neither may need one guessed or raised over.
+    """
+    for terminal in (MATED, DRAWN):
         severity = move_severity(QUIET_WHITE, terminal, chess.WHITE)
-        assert severity.winprob_drop == 1.0
-        assert severity.klass == BLUNDER
-        assert severity.cp_loss == 25
+        assert isinstance(severity, Severity)
+        assert severity.winprob_drop < 1.0, "the player did not lose the whole game"
 
 
 def test_a_terminal_position_still_needs_no_best_move_in_the_first_argument() -> None:

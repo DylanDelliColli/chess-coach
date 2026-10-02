@@ -18,7 +18,7 @@ own.
   position that *recurs* and a large archive makes the test slow without making it
   truer. These are the games that supply the real ECO codes and the real opening
   positions.
-* The two transposition lines ``1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. Nxe5`` and its
+* The two transposition lines ``1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Nxe5`` and its
   knight-shuffle twin, wrapped in chess.com-shaped PGN headers by
   :func:`pgn_of`. They are there for the one property the archive prefix cannot
   supply on its own: the same position reached at two different move numbers,
@@ -95,8 +95,13 @@ ACCOUNT = json.loads(MANIFEST.read_text())["source"]["account"]
 #: How many of the archive's real games this file uses, and why (module docstring).
 REAL_GAMES = 4
 
-TRANSPOSITION_FIRST = "1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. Nxe5"
-TRANSPOSITION_SECOND = "1. Nf3 Nf6 2. Ng1 Ng8 3. e4 e5 4. Nf3 Nf6 5. Bc4 Nc6 6. Nxe5"
+#: The Ruy, not the Italian these lines used to name: since ``chess-r49`` the
+#: engine searches the position without its move counters (Stockfish reads
+#: ``rule50`` from the FEN), and 3.Bc4 in the Italian then measures 31 cp against
+#: the engine's 3.Bb5 - one centipawn outside the book band - which made the
+#: corpus's own book leak a boundary case instead of a hundred-centipawn one.
+TRANSPOSITION_FIRST = "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Nxe5"
+TRANSPOSITION_SECOND = "1. Nf3 Nf6 2. Ng1 Ng8 3. e4 e5 4. Nf3 Nc6 5. Bb5 a6 6. Nxe5"
 TRANSPOSITION_BLUNDER = "Nxe5"
 
 #: Glyphs written out here, independently of ``report.py``'s own table, so this
