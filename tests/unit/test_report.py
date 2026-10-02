@@ -309,10 +309,7 @@ def test_eco_label_renders_readably() -> None:
     else shows as it is, and no label at all is an em dash.
     """
     # A real label out of the recorded cassette, verbatim.
-    assert (
-        format_eco("https://www.chess.com/openings/Grob-Opening-1...e5")
-        == "Grob-Opening-1...e5"
-    )
+    assert format_eco("https://www.chess.com/openings/Grob-Opening-1...e5") == "Grob-Opening-1...e5"
     assert (
         format_eco("https://www.chess.com/openings/English-Opening-Kings-English-Variation-2.d3")
         == "English-Opening-Kings-English-Variation-2.d3"

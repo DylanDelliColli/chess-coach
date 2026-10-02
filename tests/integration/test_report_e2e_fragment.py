@@ -206,8 +206,12 @@ def score_games(engine: EngineService, records: list):
                 continue
             scored.append(
                 ScoredMove.from_ply(
-                    ply, move_severity(engine.analyse(ply.fen_before),
-                                        engine.analyse(ply.fen_after), record.my_color)
+                    ply,
+                    move_severity(
+                        engine.analyse(ply.fen_before),
+                        engine.analyse(ply.fen_after),
+                        record.my_color,
+                    ),
                 )
             )
             san = best_move_in_san(engine, ply.fen_before)
@@ -431,9 +435,7 @@ def test_a_real_chess_com_url_label_is_shortened_at_render_time(
     assert format_eco(clusters[0].eco) == real_url.rsplit("/", 1)[-1]
 
 
-def test_a_clean_run_writes_a_report_with_nothing_in_it(
-    real_run: RealRun, tmp_path: Path
-) -> None:
+def test_a_clean_run_writes_a_report_with_nothing_in_it(real_run: RealRun, tmp_path: Path) -> None:
     """No clusters is a finding, not a crash: the provenance numbers still print.
 
     Worth a test of its own because it is the shape ``cli.py`` will hit on a player
