@@ -19,6 +19,11 @@ cd "$(dirname "$0")/.."
 
 PYTHON="${PYTHON:-python3}"
 log() { echo "setup_env: $*" >&2; }
+# The only failure path in this script: the interpreter is too old to run the
+# release (python-chess 1.11 and the type syntax in this package need 3.11+).
+# Without this definition the guard below printed "die: command not found" and
+# exited 127, telling the operator nothing about which interpreter was wrong.
+die() { echo "setup_env: $*" >&2; exit 1; }
 
 "$PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' ||
   die "python 3.11+ is required, $PYTHON is $("$PYTHON" -V 2>&1)"
