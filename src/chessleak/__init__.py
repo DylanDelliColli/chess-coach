@@ -9,6 +9,9 @@ the console entry point as ``chessleak = src.chessleak.cli:main``.
 
 from __future__ import annotations
 
-__version__ = "1.0.0"
+#: The version this release is tagged with. The operator ruled on 2026-10-02
+#: that the first release is 0.1.0; ``pyproject.toml`` carries the same figure
+#: and ``tests/unit/test_version.py`` pins the two against each other.
+__version__ = "0.1.0"
 
 __all__ = ["__version__"]

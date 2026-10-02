@@ -1,8 +1,11 @@
 """Severity: the win-probability curve, the one perspective conversion, the classes.
 
-This module answers one question about one move: *how much win probability did the
-player throw away?* Everything else in the release is arranged so that the question
-has one answer rather than two, which comes down to two rules.
+This module answers one question about one move: *how much did the player throw
+away?* It answers it in the two units the release reports, in the two roles the
+operator's 2026-10-02 ruling gives them - the class in centipawns, the report's
+"Win% lost" figure in win probability - and everything else in the release is
+arranged so that the question has one answer rather than two, which comes down to
+two rules.
 
 * **Scores arrive as white's point of view, always.** ``engine.py`` reads
   ``info["score"].white()`` and hands back :class:`~chessleak.engine.EvalResult`
@@ -16,14 +19,18 @@ has one answer rather than two, which comes down to two rules.
   at its best; ``eval_after`` is the position *after* it. The loss is the distance
   between them in the player's currency, never the score of the position alone.
 
-Thresholds are the operator's written values - a win-probability drop of
-``INACCURACY_DROP`` / ``MISTAKE_DROP`` / ``BLUNDER_DROP`` at ``win_prob_k = 0.004`` -
-held as named constants because open question **Q3** on the release bead asks
-whether the conventional centipawn bands (50/100/200) should replace them. If the
-answer is "centipawns", these constants and the tests that pin them change;
-nothing structural does. :func:`test_scale_is_the_operators_scale` records what
-the current scale means in centipawns, so a change of threshold forces a decision
-there rather than a silent drift.
+Thresholds are **centipawn** bands - ``ok`` below 50, inaccuracy 50-100, mistake
+100-200, blunder from 200 - ruled by the operator on 2026-10-02 and held as named
+constants because the numbers were chosen by a person, not derived: they are the
+bands a chess player recognises when they read their own report. They supersede
+the operator's original 2026-06-05 thresholds, which were win-probability drops
+(0.07 / 0.15 / 0.30 at ``win_prob_k = 0.004``) and on the real curve meant
+roughly 70 / 155 / 347 centipawns, so a real game reported almost nothing as a
+mistake. Win probability is still computed and still carried on
+:class:`Severity` - the report shows it as "Win% lost" and :class:`~chessleak.config.Config`
+still holds the slope - but it no longer decides the class. Open question **Q3**
+on the release bead is what the ruling settled; :func:`classify_cp_loss` is the
+whole of the rule that came out of it.
 
 Nothing here imports ``engine.py``'s service, and nothing here talks to an engine:
 :func:`move_severity` takes two evaluations that were produced elsewhere, so it is
@@ -40,14 +47,14 @@ from .engine import EvalResult
 
 __all__ = [
     "BLUNDER",
-    "BLUNDER_DROP",
+    "BLUNDER_CP",
     "INACCURACY",
-    "INACCURACY_DROP",
+    "INACCURACY_CP",
     "MISTAKE",
-    "MISTAKE_DROP",
+    "MISTAKE_CP",
     "OK",
     "Severity",
-    "classify_drop",
+    "classify_cp_loss",
     "cp_to_winprob",
     "move_severity",
     "to_my_pov",
@@ -61,14 +68,15 @@ INACCURACY = "inaccuracy"
 MISTAKE = "mistake"
 BLUNDER = "blunder"
 
-#: Win-probability drop at which a move stops being ``ok``, in the operator's
-#: written scale. **Q3** on the release bead asks whether conventional centipawn
-#: bands (50/100/200) should replace these; do not move them on your own
-#: judgement. With ``win_prob_k = 0.004`` these read as roughly 72 cp, 159 cp and
-#: 347 cp, which is the finding Q3 turns on.
-INACCURACY_DROP = 0.07
-MISTAKE_DROP = 0.15
-BLUNDER_DROP = 0.30
+#: Centipawn loss at which a move stops being ``ok``, and where the next band
+#: opens. The operator's ruling of 2026-10-02 (open question Q3 on the release
+#: bead), replacing the 2026-06-05 win-probability thresholds of 0.07 / 0.15 /
+#: 0.30 at ``win_prob_k = 0.004`` - which on the real curve meant roughly
+#: 70 / 155 / 347 centipawns. Each band is inclusive at the class it opens, so
+#: 50 is an inaccuracy and 200 is a blunder.
+INACCURACY_CP = 50
+MISTAKE_CP = 100
+BLUNDER_CP = 200
 
 #: ``exp(x)`` overflows a double a little past 709, and by then
 #: ``1 / (1 + exp(-x))`` is 1.0 (or 0.0) to far more digits than a report shows.
@@ -91,7 +99,8 @@ def cp_to_winprob(cp: int, k: float = DEFAULT_WIN_PROB_K) -> float:
     colour is known.
 
     :raises ValueError: if ``k`` is not positive. A flat or inverted curve would
-        make every classification a silent lie, and the run should hear about it.
+        make the report's "Win% lost" figure a silent lie, and the run should hear
+        about it.
     """
     if not k > 0:
         raise ValueError(f"win probability slope k must be positive, got {k!r}")
@@ -186,12 +195,13 @@ def _winprob(evaluation: EvalResult, k: float) -> float:
 
     A mate score is a whole pawn of win probability in one direction or the other
     (the distance is deliberately ignored: mate in 1 and mate in 12 are both a
-    win for v1, and open question Q3's sibling decision on distance is not this
-    release's to make). A finished position carries no evaluation of its own -
-    the board answered it, not the engine - so it scores as the even game it is
-    worth no information about, which is what keeps a terminal first argument from
-    inventing a drop. A terminal *second* argument is the short-circuit in
-    :func:`move_severity`, not this branch.
+    win for v1, and :func:`_lost_the_game_to_mate` reads the same rule on the
+    class side - the mate appearing or disappearing, never its size). A finished
+    position carries no evaluation of its own - the board answered it, not the
+    engine - so it scores as the even game it is worth no information about, which
+    is what keeps a terminal first argument from inventing a drop. A terminal
+    *second* argument is the short-circuit in :func:`move_severity`, not this
+    branch.
     """
     if evaluation.mate is not None and evaluation.mate != 0:
         return 1.0 if evaluation.mate > 0 else 0.0
@@ -210,18 +220,49 @@ def _cp(evaluation: EvalResult) -> int:
     return int(evaluation.cp or 0)
 
 
-def classify_drop(winprob_drop: float) -> str:
-    """The class a win-probability drop falls in, at the operator's thresholds.
+def _lost_the_game_to_mate(best: EvalResult, after: EvalResult) -> bool:
+    """Whether the move cost the game itself, which centipawns cannot say.
 
-    The boundaries are inclusive at the class they open, so a drop of exactly
-    ``INACCURACY_DROP`` is an inaccuracy. A drop is never negative: callers clamp
-    it before asking, because a move that improved is a zero, not a mistake.
+    Both evaluations are already in the player's point of view. A mate score has
+    no centipawn value, so ``cp_loss`` reads as zero for a move that walks away
+    from a proved mate and for a move that walks into one, and the operator's
+    centipawn bands (50 / 100 / 200) would call both ``ok``. Each is the whole
+    win thrown away, so each is a blunder by itself - the same reasoning as the
+    terminal short-circuit in :func:`move_severity`.
+
+    Distance is deliberately not read, in either direction: a player who mates
+    in four after a move that mated in three has kept the win, and a player who
+    was already being mated in two has lost nothing the move cost them. What is
+    watched is the mate appearing or disappearing, which is the part the design
+    record fixes as a whole pawn of win probability.
     """
-    if winprob_drop >= BLUNDER_DROP:
+    had_mate = best.mate is not None and best.mate > 0
+    has_mate = after.mate is not None and after.mate > 0
+    if had_mate and not has_mate:
+        return True
+    was_mated = best.mate is not None and best.mate < 0
+    is_mated = after.mate is not None and after.mate < 0
+    return is_mated and not was_mated
+
+
+def classify_cp_loss(cp_loss: int) -> str:
+    """The class a centipawn loss falls in, at the operator's 2026-10-02 bands.
+
+    ``ok`` below 50, inaccuracy from 50, mistake from 100, blunder from 200: the
+    boundaries are inclusive at the class they open, so a loss of exactly
+    ``INACCURACY_CP`` is an inaccuracy.
+
+    A negative loss is ``ok``, because a move that *improves* the position is
+    never a mistake. :func:`move_severity` clamps the loss at zero before it
+    gets here - a negative figure would poison the average ``cluster.py`` builds
+    - so this is the same rule stated once, for a caller classifying its own
+    number.
+    """
+    if cp_loss >= BLUNDER_CP:
         return BLUNDER
-    if winprob_drop >= MISTAKE_DROP:
+    if cp_loss >= MISTAKE_CP:
         return MISTAKE
-    if winprob_drop >= INACCURACY_DROP:
+    if cp_loss >= INACCURACY_CP:
         return INACCURACY
     return OK
 
@@ -232,10 +273,12 @@ class Severity:
 
     ``cp_loss`` is the centipawn difference between the engine's line and the
     move actually played, ``winprob_drop`` the same loss on the win-probability
-    curve, and ``klass`` the label the report shows. ``cp_loss`` and
-    ``winprob_drop`` are both non-negative: an improving move reads as zero,
-    because the engine is not omniscient and a negative figure would poison the
-    average ``cluster.py`` builds.
+    curve, and ``klass`` the label the report shows. ``klass`` is read from
+    ``cp_loss`` alone, by the operator's 2026-10-02 centipawn bands;
+    ``winprob_drop`` is the report's "Win% lost" figure and no longer decides it.
+    Both figures are non-negative: an improving move reads as zero, because the
+    engine is not omniscient and a negative figure would poison the average
+    ``cluster.py`` builds.
     """
 
     cp_loss: int
@@ -263,10 +306,18 @@ def move_severity(
     short-circuit is why this function can score a mate-in-one window without a
     best move in the second argument.
 
+    The same reasoning covers a mate that appears or disappears across the move
+    (:func:`_lost_the_game_to_mate`): a mate score carries no centipawn value, so
+    the bands have nothing to read and the class would come out ``ok`` for the
+    largest error in the game. The win-probability drop is still the ordinary
+    computed figure there, which is what the report shows.
+
     A move that holds or improves the position costs nothing: the engine's line
-    is one line, not the only one, so ``winprob_drop`` is clamped at zero and an
-    improvement is ``ok``. ``k`` is the curve's slope, so a caller can re-scale
-    the drop (see Q3) without touching the class boundaries.
+    is one line, not the only one, so ``cp_loss`` is clamped at zero and an
+    improvement is ``ok``. ``k`` is the curve's slope and it now shapes the
+    displayed win-probability loss only; the class is a function of
+    ``cp_loss`` alone, so a steeper curve makes the same error read bigger in the
+    report without reclassifying it.
     """
     best = to_my_pov(eval_best, my_color)
     after = to_my_pov(eval_after, my_color)
@@ -277,8 +328,11 @@ def move_severity(
         return Severity(cp_loss=cp_loss, winprob_drop=1.0, klass=BLUNDER)
 
     winprob_drop = max(0.0, _winprob(best, k) - _winprob(after, k))
+    if _lost_the_game_to_mate(best, after):
+        return Severity(cp_loss=cp_loss, winprob_drop=winprob_drop, klass=BLUNDER)
+
     return Severity(
         cp_loss=cp_loss,
         winprob_drop=winprob_drop,
-        klass=classify_drop(winprob_drop),
+        klass=classify_cp_loss(cp_loss),
     )

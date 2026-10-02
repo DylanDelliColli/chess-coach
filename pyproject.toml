@@ -4,7 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chessleak"
-version = "1.0.0"
+# The operator ruled on 2026-10-02 that the first release is 0.1.0, not 1.0.0.
+# src/chessleak/__init__.py carries the same figure; the two are pinned together
+# by tests/unit/test_version.py.
+version = "0.1.0"
 description = "Opening-phase recurring-mistake analyzer for a chess.com player's own games"
 requires-python = ">=3.11"
 dependencies = [
