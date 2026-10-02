@@ -15,6 +15,16 @@ carry the release:
 * **The cache is keyed by position, not by FEN string.** ``position_key`` drops
   the halfmove clock and fullmove number, so the same board reached by
   transposition at a different move count is one entry, not two.
+* **A score is a property of its position, not of what was searched before
+  it.** Stockfish carries its transposition table across searches, and
+  python-chess's ``SimpleEngine`` sends no ``ucinewgame``, so an unreset engine
+  answers the same position differently depending on the order it was asked:
+  measured on this host, 58 of 60 real opening positions scored differently
+  between the two search orders at depth 12. Every search here is therefore
+  preceded by a ``ucinewgame``, and the frozen options pin one thread, because a
+  multi-threaded search is not reproducible within one analysis either. The book
+  band is 30 cp: an order artefact of that size decides a finding, and this tool
+  exists to tell someone which of their habits to fix.
 
 The engine process is launched lazily, on the first cache miss, so a run whose
 positions are all cached never starts a process. The cache is a real sqlite file
@@ -47,9 +57,21 @@ class EngineError(RuntimeError):
     """The engine answered something this module cannot turn into an evaluation."""
 
 
-#: Passed to Stockfish at launch. The design record fixes these two so that three
-#: workers running engines at once do not oversubscribe the host's 24 threads.
-DEFAULT_ENGINE_OPTIONS: dict[str, str] = {"Threads": "2", "Hash": "128"}
+#: Passed to Stockfish at launch. One thread, because reproducibility is worth
+#: more here than the wall clock: measured on this host at ``Threads=2``, the same
+#: position at depth 18 came back as +1, 0, +13 and -2 cp with two different best
+#: moves across four separate processes. ``Hash`` is 128 MB, which is also what
+#: keeps three workers running engines at once inside this host's memory. A caller
+#: who wants the speed passes ``options={"Threads": "4"}`` and forfeits
+#: reproducibility knowingly.
+DEFAULT_ENGINE_OPTIONS: dict[str, str] = {"Threads": "1", "Hash": "128"}
+
+#: Sent to the engine before every search, so that a position's score does not
+#: depend on the positions searched before it in the same process. UCI has no
+#: command for "forget part of the hash", and this is the one that means "start
+#: from nothing": the transposition table is the channel an earlier position uses
+#: to answer for a later one.
+_RESET_LINE = "ucinewgame"
 
 #: sqlite3's own busy timeout, in seconds, for a cache file someone else holds.
 _SQLITE_BUSY_TIMEOUT = 10.0
@@ -91,7 +113,8 @@ class EngineService:
     :param cache_path: the sqlite cache file; defaults to
         ``<cache_dir>/evalcache.sqlite``.
     :param options: UCI options for the process, replacing
-        :data:`DEFAULT_ENGINE_OPTIONS` when given.
+        :data:`DEFAULT_ENGINE_OPTIONS` when given. The defaults make a run
+        reproducible rather than fast, so passing your own may cost that.
 
     Use it as a context manager so the process is always quit::
 
@@ -189,6 +212,12 @@ class EngineService:
         ``position_key``, so move counters do not split one position into two
         entries. A malformed FEN raises ``ValueError`` before anything is
         cached. Raises :class:`EngineError` if the engine answers without a score.
+
+        Two calls for one position and depth answer identically, in one process
+        or two, and whether or not a hundred other positions were searched around
+        it first. That is this service's own doing — a ``ucinewgame`` before
+        every search, one thread by default — and callers rely on it: the cache
+        freezes the first answer and replays it, and the report quotes the number.
         """
         board = chess.Board(fen)
         key = position_key(board.fen())
@@ -211,7 +240,16 @@ class EngineService:
         if terminal is not None:
             return terminal
 
-        info = self._engine_handle().analyse(board, chess.engine.Limit(depth=self.depth))
+        engine = self._engine_handle()
+        # ucinewgame before the search, not after the last one: a stale
+        # transposition table is an earlier position's opinion of this one, and
+        # the engine answers with it. Both lines go out under self._lock, so no
+        # other caller can slip a position in between the reset and the search.
+        # SimpleEngine has no public ucinewgame, and its game= argument would
+        # block forever on a position that is not a game, so the line goes out on
+        # the protocol directly.
+        engine.protocol.send_line(_RESET_LINE)
+        info = engine.analyse(board, chess.engine.Limit(depth=self.depth))
         score = info.get("score")
         if score is None:
             raise EngineError(f"engine returned no score for {board.fen()}: {info!r}")

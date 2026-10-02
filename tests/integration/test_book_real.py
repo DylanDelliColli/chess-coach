@@ -7,23 +7,30 @@ is a standard opening line written out here rather than a fixture file, because
 ``tests/fixtures/*.pgn`` belongs to the extraction unit and the point of these
 tests is a line with a *known* deviation ply, not a real game's statistics.
 
-Measured on this host with Stockfish 19 at depth 18, ``Threads=1``; the per-ply
-gaps quoted in the comments are that measurement, and the assertions are bounds.
+Measured on this host with Stockfish 19 at depth 18; the per-ply gaps quoted in
+the comments are that measurement, and the assertions are bounds.
 
-Two properties of a real engine make those measurements worth stating, because
-both were found the hard way on this host:
+Two properties of a real engine decided what this file searches with, both
+because a test whose assertions *are* measurements needs a search that answers
+the same way twice:
 
-* **``Threads=1``, not the service's default of 2.** Stockfish's multi-threaded
-  search is not reproducible: the same position at depth 18 came back as +1, 0,
-  +13 and -2 cp with two different best moves across four separate processes.
-* **A position's score depends on what was searched before it.** python-chess
-  does not send ``ucinewgame`` between analyses, so the engine's transposition
-  table carries over and the same position can be worth tens of centipawns more
-  or less depending on the order (measured: the Caro-Kann position at +16 in a
-  fresh process and +20 after one other position). Every test here therefore
-  searches a fixed sequence in its own engine and its own cache, which is what
-  makes a measurement repeatable; the pipeline is deterministic in the same way,
-  because it re-reads the same games in the same order.
+* **One thread, now the service's own default.** Stockfish's multi-threaded
+  search is not reproducible even within one analysis: the same position at depth
+  18 came back as +1, 0, +13 and -2 cp with two different best moves across four
+  separate processes. One thread is also the gentlest way to borrow a host several
+  workers share.
+* **A fresh hash per position, now the service's own doing.** python-chess sends
+  no ``ucinewgame`` between analyses, so an engine that is not reset carries its
+  transposition table from one position into the next and the same position can be
+  worth tens of centipawns more or less depending on the order (measured here:
+  58 of 60 real opening positions scored differently between the two search
+  orders at depth 12). ``EngineService`` sends that reset before every position,
+  which is why the numbers below are stable.
+
+``ENGINE_OPTIONS`` below is therefore the service's default spelled out: this file
+states its search rather than inheriting it, so a measurement quoted here stays
+readable as a measurement. What the service guarantees is the equality this file
+relies on, not the particular centipawn values.
 """
 
 from __future__ import annotations
@@ -73,8 +80,9 @@ FOOLS_MATE = "1. f3 e5 2. g4 Qh4+"
 MATING_COLOR = "black"
 
 
-#: The options this file searches with: one thread, so every measurement above is
-#: reproducible. See the module docstring.
+#: The options this file searches with, which are the service's own defaults:
+#: one thread, so every measurement above is reproducible. See the module
+#: docstring.
 ENGINE_OPTIONS = {"Threads": "1", "Hash": "128"}
 
 

@@ -3,9 +3,14 @@
 Only the engine *process* is replaced here, because this is a unit test and the
 Prime Directive puts real composition in ``tests/integration/``. Everything this
 unit owns is real: the sqlite cache on disk, ``position_key`` as the cache key,
-the hit/miss counters, the lock that serialises engine access, and the real
-python-chess types the engine protocol hands back (``PovScore``, ``Cp``,
-``Mate``), because the white-POV rule is a property of those types.
+the hit/miss counters, the lock that serialises engine access, the ``ucinewgame``
+line that must precede every search, and the real python-chess types the engine
+protocol hands back (``PovScore``, ``Cp``, ``Mate``), because the white-POV rule
+is a property of those types.
+
+The stub records the *order* of what crosses the protocol as well as the calls
+themselves, because the property under test is an ordering one: a position's
+score must not depend on what was searched before it.
 """
 
 from __future__ import annotations
@@ -49,6 +54,21 @@ def key(fen: str) -> str:
     return position_key(chess.Board(fen).fen())
 
 
+class _FakeProtocol:
+    """Stands in for the engine's UCI protocol, which only records the lines sent.
+
+    ``SimpleEngine`` exposes no public ``ucinewgame``; the reset the service
+    owes every search goes out as a raw line through ``engine.protocol``, so a
+    stub without a protocol makes that behaviour untestable at this level.
+    """
+
+    def __init__(self, log: list[str]) -> None:
+        self.log = log
+
+    def send_line(self, line: str) -> None:
+        self.log.append(line)
+
+
 class FakeEngine:
     """Stands in for ``SimpleEngine``: canned answers, and a record of the calls.
 
@@ -66,9 +86,14 @@ class FakeEngine:
         self.live = 0
         self.max_live = 0
         self.quit_calls = 0
+        #: Everything that crossed the protocol, in order: the UCI lines sent to
+        #: the engine and the searches that followed them.
+        self.log: list[str] = []
+        self.protocol = _FakeProtocol(self.log)
 
     def analyse(self, board: chess.Board, limit: ce.Limit) -> dict:
         self.calls.append((board.fen(), limit.depth))
+        self.log.append(f"search depth={limit.depth}")
         self.live += 1
         self.max_live = max(self.max_live, self.live)
         try:
@@ -209,6 +234,7 @@ def test_terminal_position_never_reaches_the_engine(
     assert mated == EvalResult(cp=None, mate=0, best_move=None, depth=8)
     assert drawn == EvalResult(cp=0, mate=None, best_move=None, depth=8)
     assert fake.calls == []
+    assert fake.log == [], "a position decided by the board must not talk to the engine at all"
 
 
 def test_best_move_is_none_when_the_engine_returns_no_pv(
@@ -250,10 +276,72 @@ def test_engine_options_default_and_override(
         eng.analyse(START_FEN)
     # UCI options are configured on the launched process, because popen_uci
     # hands every extra keyword to the subprocess rather than to the engine.
-    assert dict(fake.configured) == dict(DEFAULT_ENGINE_OPTIONS) == {"Threads": "2", "Hash": "128"}
+    assert dict(fake.configured) == dict(DEFAULT_ENGINE_OPTIONS) == {"Threads": "1", "Hash": "128"}
 
     with service(tmp_path, options={"Threads": "1", "Hash": "32"}) as custom:
         assert custom.options == {"Threads": "1", "Hash": "32"}
+
+
+def test_default_options_are_single_threaded(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """One thread by default, because a multi-threaded search is not reproducible.
+
+    Measured on this host at ``Threads=2``: the same position at depth 18 came
+    back as +1, 0, +13 and -2 cp with two different best moves across four
+    separate processes. A number that moves like that cannot be quoted in a
+    report, so the default is one thread; a caller that wants the wall clock
+    passes ``options={"Threads": "4"}`` and forfeits reproducibility knowingly.
+    """
+    install_engine(monkeypatch, {})
+    with service(tmp_path) as eng:
+        assert eng.options["Threads"] == "1"
+        assert eng.options["Hash"] == "128"
+
+
+def test_every_search_is_preceded_by_ucinewgame(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Each position gets a fresh transposition table, so its score stands alone.
+
+    Stockfish carries its hash across searches unless told otherwise, and the
+    carry-over moves a position's score by tens of centipawns. Measured on this
+    host at depth 12 with no reset, 58 of 60 real opening positions scored
+    differently when the search order was reversed. The book band is 30 cp, so an
+    order artefact of that size decides a finding; the reset is what removes it,
+    and it is per position rather than once per process.
+    """
+    boards = _one_ply_positions(3)
+    replies = {
+        position_key(board.fen()): (ce.Cp(20), [next(iter(board.legal_moves)).uci()])
+        for board in boards
+    }
+    fake = install_engine(monkeypatch, replies)
+    fens = [board.fen() for board in boards]
+
+    with service(tmp_path) as eng:
+        for fen in fens:
+            eng.analyse(fen)
+
+    assert fake.log == ["ucinewgame", "search depth=8"] * len(fens)
+
+
+def test_a_cache_hit_never_touches_the_engine(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A hit is answered from disk: no search, no reset, no process.
+
+    The reset is part of a search, so a cached answer must not send one either.
+    A hit that reset the hash would cost what it saved and change nothing.
+    """
+    fake = install_engine(monkeypatch, {key(START_FEN): (ce.Cp(31), ["g1f3"])})
+
+    with service(tmp_path) as eng:
+        eng.analyse(START_FEN)
+        after_miss = list(fake.log)
+        eng.analyse(START_FEN)
+
+    assert after_miss == ["ucinewgame", "search depth=8"]
+    assert fake.log == after_miss, "a cache hit reached the engine"
+    assert (eng.misses, eng.hits) == (1, 1)
 
 
 def test_unused_service_launches_nothing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
