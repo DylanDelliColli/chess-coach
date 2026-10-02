@@ -17,10 +17,21 @@ field                   default                 variable                      al
 ``win_prob_k``          ``0.004``               ``CHESSLEAK_WIN_PROB_K``
 ``book_band_cp``        ``30``                  ``CHESSLEAK_BOOK_BAND_CP``
 ``top_n``               ``20``                  ``CHESSLEAK_TOP_N``
+``max_games``           ``None``                (none: a run-bound, not a setting)
+``archives``            ``()``                  (none: the whole history)
 ======================  ======================  ============================  ===================
 
 ``CHESSLEAK_ANALYSIS_DEPTH`` is the canonical name; ``CHESSLEAK_DEPTH`` is kept
 as an alias and only read when the canonical name is unset.
+
+**``max_games`` and ``archives`` are added by the CLI unit** (``chess-uow``, U8),
+which is why they carry no ``CHESSLEAK_*`` variable: they bound *one run* rather
+than describe the installation, so an environment variable would leave a stale
+bound behind on every later command. They were added additively, with defaults,
+after every other unit had merged, so nothing above them changed.
+``max_games=None`` is unlimited; ``archives=()`` is the account's whole published
+history, and a non-empty tuple is the list of monthly archive URLs to read
+instead.
 
 This module also exports :func:`position_key`, the one position-identity function
 the release shares. ``board.fen()`` ends in the halfmove clock and the fullmove
@@ -198,6 +209,16 @@ class Config:
     win_prob_k: float = DEFAULT_WIN_PROB_K
     book_band_cp: int = DEFAULT_BOOK_BAND_CP
     top_n: int = DEFAULT_TOP_N
+    #: How many of the account's most recent games this run analyses, or ``None``
+    #: for all of them. ``download_all`` returns games newest first, so a bound
+    #: keeps the most recent games - the ones whose openings the player is still
+    #: playing. The bound is on *analysis*, not on downloading: the whole history
+    #: is cached on the first run, so a later run costs no network at all.
+    max_games: int | None = None
+    #: The monthly archive URLs to read instead of enumerating the account's
+    #: index. Empty means "the whole published history", which is the default for
+    #: every real run; a non-empty tuple is how a caller analyses one month.
+    archives: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> Config:
