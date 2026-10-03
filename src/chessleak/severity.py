@@ -190,6 +190,26 @@ def is_terminal(evaluation: EvalResult) -> bool:
     return evaluation.mate == 0 or (evaluation.mate is None and evaluation.best_move is None)
 
 
+def _mated_the_opponent(after: EvalResult) -> bool:
+    """Whether the position the player's move reached is the opponent checkmated.
+
+    ``after`` is already in the player's point of view, and it is the position
+    *after the player's own move*, which is the whole of the argument: the side to
+    move there is the opponent, so the finished position is the opponent's, not the
+    player's. ``engine.py`` answers a checkmate as ``mate = 0`` from either side
+    because the side to move is the side that is mated, so the value itself cannot
+    say whose win it is - which is exactly what the terminal short-circuit this
+    replaces read as a total loss.
+
+    The mirror case is not here: a player who walks into a forced mate has an
+    ``after`` with a negative ``mate``, which :func:`_lost_the_game_to_mate` reads,
+    and a player who hands over a mate they had is the same rule from the other
+    side. A delivered mate needs no band, no centipawn figure and no distance: the
+    game is over in the player's favour.
+    """
+    return is_terminal(after) and after.mate == 0
+
+
 def _winprob(evaluation: EvalResult, k: float) -> float:
     """The win probability of an evaluation already in the player's point of view.
 
@@ -200,8 +220,9 @@ def _winprob(evaluation: EvalResult, k: float) -> float:
     position carries no evaluation of its own - the board answered it, not the
     engine - so it scores as the even game it is worth no information about, which
     is what keeps a terminal first argument from inventing a drop. A terminal
-    *second* argument is the short-circuit in :func:`move_severity`, not this
-    branch.
+    *second* argument never reaches this branch at all: :func:`move_severity` reads
+    the finish itself first, because a checkmate there is the player's win and a
+    draw is this even 0.5 - neither of which is a fact this function can see.
     """
     if evaluation.mate is not None and evaluation.mate != 0:
         return 1.0 if evaluation.mate > 0 else 0.0
@@ -228,7 +249,7 @@ def _lost_the_game_to_mate(best: EvalResult, after: EvalResult) -> bool:
     from a proved mate and for a move that walks into one, and the operator's
     centipawn bands (50 / 100 / 200) would call both ``ok``. Each is the whole
     win thrown away, so each is a blunder by itself - the same reasoning as the
-    terminal short-circuit in :func:`move_severity`.
+    delivered-mate branch in :func:`move_severity`, read from the other side.
 
     Distance is deliberately not read, in either direction: a player who mates
     in four after a move that mated in three has kept the win, and a player who
@@ -300,11 +321,18 @@ def move_severity(
     the position before the move (the engine's own line) and ``eval_after`` the
     position the player's move actually reached.
 
-    A finished position after the move is a whole pawn of win probability lost,
-    whatever the player's move was: the game is over, nothing is recoverable, and
-    the record cannot ask for a best move it has already said does not exist. That
-    short-circuit is why this function can score a mate-in-one window without a
-    best move in the second argument.
+    A finished position after the move is read for *whose* win it is, not scored
+    as a whole pawn of loss. The position after the player's own move always has
+    the opponent to move, so the ``mate = 0`` that ``engine.py`` answers a
+    checkmate with from either side means the opponent was checkmated: the player
+    has just won the game, and no figure makes that a mistake
+    (:func:`_mated_the_opponent`). A draw after the move is half the game, which
+    :func:`_winprob` already scores as an even 0.5, and it classifies from its own
+    centipawn figure like any other position. Neither finish needs a best move in
+    the second argument, because ``engine.py`` reports none - which is what lets a
+    mate-in-one window be scored at all. The loss that *is* real, a mate forced
+    against the player, arrives as a mate score rather than a finish, and is read by
+    :func:`_lost_the_game_to_mate`.
 
     The same reasoning covers a mate that appears or disappears across the move
     (:func:`_lost_the_game_to_mate`): a mate score carries no centipawn value, so
@@ -322,10 +350,12 @@ def move_severity(
     best = to_my_pov(eval_best, my_color)
     after = to_my_pov(eval_after, my_color)
 
-    cp_loss = max(0, _cp(best) - _cp(after))
+    if _mated_the_opponent(after):
+        # There is nothing to subtract from the position before: the move ended
+        # the game in the player's favour, which is the best outcome there is.
+        return Severity(cp_loss=0, winprob_drop=0.0, klass=OK)
 
-    if is_terminal(after):
-        return Severity(cp_loss=cp_loss, winprob_drop=1.0, klass=BLUNDER)
+    cp_loss = max(0, _cp(best) - _cp(after))
 
     winprob_drop = max(0.0, _winprob(best, k) - _winprob(after, k))
     if _lost_the_game_to_mate(best, after):

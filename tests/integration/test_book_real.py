@@ -55,18 +55,27 @@ pytestmark = pytest.mark.integration
 #: The release's real-journey depth (Config.analysis_depth).
 DEPTH = 18
 
-#: A quiet Italian the player follows for seven of their own moves. Measured gaps
-#: for the player at plies 0-12: 9, 0, 17, 8, 0, 0, 0, all inside the 30 cp book
-#: band. Then 8.Nxe5??: measured 706 cp against the engine's line, and the
-#: engine's own move in that position is 8.Nbd2.
+#: A quiet Ruy Lopez the player follows for seven of their own moves. Measured
+#: gaps for the player at plies 0-12: 5, 0, 12, 0, 0, 6, 13, all inside the 30 cp
+#: book band and the worst of them 17 clear of it. Then 8.Nxe5??: measured 685 cp
+#: against the engine's line, which plays 8.c3.
+#:
+#: The line was the Italian until ``chess-r49`` (evaluator round 1) repaired the
+#: eval-cache key: Stockfish reads ``rule50`` from the FEN it is given, so the
+#: service now searches the position without its move counters, and 3.Bc4 in the
+#: Italian measures 31 cp against the engine's 3.Bb5 - one centipawn outside the
+#: book band, where it had measured 30 the day before. A fixture that decides the
+#: band by a single centipawn is not testing the band, so this line is one whose
+#: own book moves the engine agrees with. Every assertion below is unchanged.
 BOOK_THEN_DEVIATION = (
-    "1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. c3 Nf6 5. d3 d6 6. O-O O-O 7. Re1 a5 8. Nxe5"
+    "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 6. Re1 b5 7. Bb3 d6 8. Nxe5"
 )
 DEVIATION_PLY = 14
 DEVIATION_MOVE = "Nxe5"
 DEVIATION_ENGINE_MOVE = "Nbd2"
-#: A line with no deviation at all: every player move is inside the band.
-ALL_BOOK = BOOK_THEN_DEVIATION.replace(" 8. Nxe5", " 8. Bg5")
+#: The line, again, with 8.c3 where the deviation is: measured gap 0, so it stays
+#: in the book end to end.
+ALL_BOOK = BOOK_THEN_DEVIATION.replace(" 8. Nxe5", " 8. c3")
 
 #: A black-player line that keeps the band for four moves and then gives up a
 #: pawn: measured +18 for white before and +91 after, so a 73 cp loss for black.
@@ -130,9 +139,9 @@ def opening(line: str, *, my_color: str, game_id: str = "real-engine-game"):
 def test_real_opening_deviation(engine: EngineService) -> None:
     """A game that follows the book and deviates at a known ply is flagged there.
 
-    Fifteen plies of a real Italian, extracted by the real extractor with the
+    Fifteen plies of a real Ruy Lopez, extracted by the real extractor with the
     real engine behind it: the player's own moves stay inside the 30 cp band
-    until ply 14, where 8.Nxe5?? is 706 cp worse than the engine's 8.Nbd2.
+    until ply 14, where 8.Nxe5?? is 685 cp worse than the engine's 8.c3.
     """
     plies = opening(BOOK_THEN_DEVIATION, my_color="white")
 
@@ -167,7 +176,7 @@ def test_real_opening_deviation(engine: EngineService) -> None:
 
 
 def test_a_line_the_engine_agrees_with_is_not_flagged(engine: EngineService) -> None:
-    """The same fifteen plies with 8.Bg5 instead of 8.Nxe5 stay inside the band."""
+    """The same fifteen plies with 8.c3 instead of 8.Nxe5 stay inside the band."""
     plies = opening(ALL_BOOK, my_color="white")
 
     assert first_deviation(plies, engine, band_cp=DEFAULT_BOOK_BAND_CP) is None
@@ -297,6 +306,9 @@ def test_the_window_is_walked_once_per_game_and_stops_at_the_first_deviation(
     which the engine's own miss counter shows.
     """
     plies = opening(
+        # Two deviations in one window, which is the point: under the corrected
+        # search input (chess-r49) 3.Bc4 in the Italian is the first of them, so
+        # the walk stops at ply 4 of 15 rather than running to the end.
         "1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. c3 Nf6 5. d3 d6 6. O-O O-O 7. Re1 a5 8. Nxe5",
         my_color="white",
     )

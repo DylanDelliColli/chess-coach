@@ -489,6 +489,14 @@ def render_report(
     raises ``ValueError`` here rather than writing an empty report: it is a usage
     error, and ``cli.py`` turns one into its usage exit code.
 
+    The "no recurring habits" section is a claim about the *run* - nothing recurred
+    and nothing was played worse than the engine - so it is written from
+    ``habits``, never from the truncated list. Gating it on what ``top_n`` left
+    would let a capped report, ``--top 0`` above all, deny in its own body the
+    habits its header has just counted, which is the worst kind of wrong for this
+    file: the reader cannot tell a fact about their openings from a fact about the
+    display, and this report exists to be acted on.
+
     ``out_path`` may be a ``Path`` or a string, since ``cli.py`` will have whatever
     argparse produced. Parent directories are created, so a first run does not
     need a ``mkdir`` the caller might forget, and an existing file is replaced, so
@@ -512,7 +520,7 @@ def render_report(
     lines = _header(summary)
     lines += ["", _ranking_line(len(shown), len(habits)), ""]
     lines += [_withheld_line(summary.get(WITHHELD_FIELD)), "", LOWER_BOUND_SENTENCE, ""]
-    if not shown:
+    if not habits:
         lines += [
             "## No recurring habits",
             "",

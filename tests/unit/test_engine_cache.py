@@ -168,6 +168,52 @@ def test_cache_key_is_the_position_not_the_move_counters(
     assert again.cp == 31
 
 
+def test_the_searched_board_is_the_cache_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The engine is asked about the position the key names, counters and all.
+
+    Stockfish takes its ``rule50`` from the FEN it is given, so the same board at
+    two different halfmove clocks is two different searches - measured on this
+    host, one real opening position at depth 12 scored cp 43/34/38/30/33/38/37
+    across halfmove 0/1/2/3/4/10/49, with the best move changing at halfmove 4.
+    The cache key has always been the first four FEN fields, so the row it froze
+    held whichever clock arrived first. The fix is to search the position the key
+    names, so a score is a property of its position and the row says so too.
+    """
+    fake = install_engine(monkeypatch, {key(START_LATE_FEN): (ce.Cp(31), ["g1f3"])})
+
+    with service(tmp_path) as eng:
+        late = eng.analyse(START_LATE_FEN)
+        early = eng.analyse(START_FEN)
+
+    assert (eng.misses, eng.hits) == (1, 1)
+    assert fake.calls == [(START_FEN, 8)], (
+        f"the searched FEN must be the key with the counters cleared: {fake.calls}"
+    )
+    assert late == early
+
+
+def test_a_seventyfive_move_clock_is_answered_from_the_board(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Clearing the counters for the search must not hide a finished position.
+
+    The seventy-five-move rule is a clock, so it is read before the clock is
+    cleared: a position at halfmove 150 is over and the board says so, with no
+    engine launched at all.
+    """
+    fake = install_engine(monkeypatch, {})
+
+    with service(tmp_path) as eng:
+        drawn = eng.analyse(f"{key(START_FEN)} 150 100")
+
+        assert eng.engine_running is False, "a finished position must not launch the engine"
+
+    assert drawn == EvalResult(cp=0, mate=None, best_move=None, depth=8)
+    assert fake.calls == []
+
+
 def test_depth_is_part_of_the_cache_key(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """A deeper search of the same position is a different answer, so a miss."""
     fake = install_engine(monkeypatch, {key(START_FEN): (ce.Cp(31), ["g1f3"])})
@@ -217,8 +263,9 @@ def test_terminal_position_never_reaches_the_engine(
 ) -> None:
     """A finished game is decided by the board, so no engine is launched for it.
 
-    ``severity.move_severity`` short-circuits a terminal evaluation instead of
-    needing a best move, which is what makes ``best_move=None`` here safe.
+    ``severity.move_severity`` scores a terminal evaluation from the board's own
+    answer, without needing a best move in it, which is what makes
+    ``best_move=None`` here safe.
     """
     fake = install_engine(monkeypatch, {})
 
