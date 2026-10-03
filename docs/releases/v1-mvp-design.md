@@ -83,7 +83,7 @@ black-to-move score — silently, and in exactly the direction the PRD calls out
 | `EngineService` | `engine.py` (U2) | `EngineService(stockfish_path, depth, cache_path, *, options: dict[str,str] \| None = None)`; context manager; `analyse(fen) -> EvalResult`; serialized engine access; counters `hits: int` and `misses: int`; sqlite cache at `cache_path` keyed `(position_key(fen), depth)` | `severity.py`, `book.py`, `cli.py` |
 | `cp_to_winprob(cp, k)` | `severity.py` (U5) | `1/(1+exp(-k*cp))`, cp only; mate mapping lives in `move_severity` | `report.py` (display) |
 | `to_my_pov(eval, my_color)` | `severity.py` (U5) | `EvalResult` converted to the player's perspective | `book.py` |
-| `move_severity(eval_best, eval_after, my_color)` | `severity.py` (U5) | `Severity`; both arguments white-POV; classified in **centipawn** bands (operator, 2026-10-02), with `winprob_drop` shown for display only; a terminal `eval_after` short-circuits to `winprob_drop = 1.0` and `blunder` without needing a best move; a mate that appears or disappears across the move is a `blunder` whatever the centipawn figure reads | `cluster.py` |
+| `move_severity(eval_best, eval_after, my_color)` | `severity.py` (U5) | `Severity`; both arguments white-POV; classified in **centipawn** bands (operator, 2026-10-02), with `winprob_drop` shown for display only; a mate that appears or disappears across the move is a `blunder` whatever the centipawn figure reads. **Terminal handling (corrected by `chess-nl7`, evaluator round 1):** `engine.py` answers a checkmate as `mate = 0` from either side, because the side to move is the one that is mated, so that value alone cannot say *whose* win it is. The position after the player's own move always has the opponent to move, therefore: `mate == 0` after the move means the opponent was mated — the player **won**, no loss, and the class comes from `cp_loss`; a draw is likewise not a loss; only a post-move position in which the *opponent* has a forced mate is scored as a loss. The earlier rule, which short-circuited on any terminal position, scored every mate the player delivered as a `blunder` worth the whole win probability — found on the operator's own account, where three games end by checkmate inside the 15-ply window and the account made the mating move in all three | `cluster.py` |
 | `Severity` | `severity.py` (U5) | `cp_loss: int, winprob_drop: float, klass: str` where `klass ∈ {ok, inaccuracy, mistake, blunder}`, decided by `cp_loss` alone against the operator's bands (< 50 / 50-100 / 100-200 / ≥ 200) | `cluster.py` |
 | `DeviationFlag` | `book.py` (U5) | `game_id, ply_index, fen_before, my_move: str (SAN), best_move: str (SAN), cp_gap: int` with `cp_gap >= 0` meaning "worse for the player" | `cluster.py` |
 | `first_deviation(ply_records, engine, band_cp)` | `book.py` (U5) | called **once per game** with that game's window; `engine` is duck-typed on `analyse(fen) -> EvalResult`, so the unit test's stub is legitimate | `cli.py` |
@@ -120,7 +120,8 @@ Decisions the beads left open, settled here:
   in a game: a move that walks away from a proved mate, or walks into one, measures
   `cp_loss = 0` and would come out `ok`. Measured on the real engine it is 0 cp
   against 0.474 of win probability. So `move_severity` short-circuits, beside the
-  terminal one above it: a mate appearing or disappearing across the move is a
+  terminal one above it, corrected as described there: a mate appearing or
+  disappearing across the move is a
   `blunder`, with the distance read in neither direction - a player who mates in
   four after a move that mated in three has kept the win, and one already being
   mated in two has lost nothing the move cost. The win-probability drop is still
